@@ -26,8 +26,9 @@ COMMANDS                                                *euporie-commands*
 
 PLUG MAPPINGS                                           *euporie-mappings*
 
-vim-euporie intentionally defines no ordinary key mappings. Suggested ones:
+vim-euporie defines these buffer-local mappings by default:
 >
+  <S-CR>                 Run cell and advance (send Visual selection)
   nmap <localleader>er <Plug>(EuporieRunCell)
   nmap <localleader>ec <Plug>(EuporieSendCell)
   nmap <localleader>el <Plug>(EuporieSendLine)
@@ -36,6 +37,8 @@ vim-euporie intentionally defines no ordinary key mappings. Suggested ones:
   nmap <localleader>ef <Plug>(EuporieFocus)
 <
 The <Plug> mappings are installed for Python buffers.
+Shift-Enter runs the current cell and advances in Normal and Insert mode. In
+Visual mode it sends the selection. Existing Shift-Enter mappings are kept.
 
 CONFIGURATION                                           *euporie-config*
 
@@ -44,6 +47,7 @@ g:vim_euporie_pane_percent      Default: 40
 g:vim_euporie_split             "horizontal" or "vertical"
 g:vim_euporie_graphics          Default: "kitty-unicode"
 g:vim_euporie_configure_tmux    Enable allow-passthrough; default: 1
+g:vim_euporie_configure_keyboard Enable tmux/Vim modified keys; default: 1
 g:vim_euporie_idle_timeout      Seconds after final Vim detaches; default: 0
 g:vim_euporie_start_timeout     First-start timeout; default: 90
 g:vim_euporie_with              uv overlay packages; default:

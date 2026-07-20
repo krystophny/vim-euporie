@@ -33,6 +33,16 @@ call assert_equal(9, cell.last)
 call append(0, ['# /// script', '# dependencies = ["matplotlib"]', '# ///'])
 call assert_true(euporie#has_inline_metadata())
 
+call assert_equal('<Plug>(EuporieRunCell)', maparg('<S-CR>', 'n'))
+call assert_equal('<Plug>(EuporieRunCell)', maparg('<S-CR>', 'i'))
+call assert_equal('<Plug>(EuporieSendVisual)', maparg('<S-CR>', 'x'))
+call assert_match('EuporieRunCell', maparg('<Plug>(EuporieRunCell)', 'i'))
+if v:version < 901
+  call assert_equal('<Plug>(EuporieRunCell)', maparg('<t_E1>', 'n'))
+  call assert_equal('<Plug>(EuporieRunCell)', maparg('<t_E2>', 'i'))
+  call assert_equal('<Plug>(EuporieSendVisual)', maparg('<t_E1>', 'x'))
+endif
+
 if len(v:errors)
   call writefile(v:errors, '/dev/stderr')
   cquit

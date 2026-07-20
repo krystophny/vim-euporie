@@ -1,5 +1,6 @@
 let s:contexts = {}
 let s:heartbeat_timer = -1
+let s:keyboard_protocol_configured = 0
 let s:plugin_root = fnamemodify(resolve(expand('<sfile>:p')), ':h:h')
 
 function! s:setting(name, default) abort
@@ -26,6 +27,59 @@ function! s:tmux_scope() abort
     return ''
   endif
   return trim(s:tmux(['display-message', '-p', '#{session_id}:#{window_id}']))
+endfunction
+
+function! s:configure_keyboard() abort
+  if s:keyboard_protocol_configured
+        \ || empty($TMUX)
+        \ || !s:setting('configure_keyboard', 1)
+    return
+  endif
+
+  " Vim sees TERM=tmux-256color, so it does not select the Ghostty keyboard
+  " protocol itself. Ask tmux for xterm modifyOtherKeys level 2, which Vim 9.0
+  " understands and uses to distinguish Shift-Enter from Enter.
+  call s:tmux(['set-option', '-s', 'extended-keys', 'on'])
+  if exists('+keyprotocol') && &term =~# '^\%(tmux\|screen\)'
+        \ && &keyprotocol !~# '\%(^\|,\)tmux:mok2\%($\|,\)'
+    let &keyprotocol = 'tmux:mok2,screen:mok2,' . &keyprotocol
+    " Re-evaluate termcap strings after changing 'keyprotocol'.
+    let &term = &term
+  endif
+  let enable = "\<Esc>[>4;2m"
+  let disable = "\<Esc>[>4;m"
+  if stridx(&t_TI, enable) < 0
+    let &t_TI .= enable
+  endif
+  if stridx(&t_TE, disable) < 0
+    let &t_TE .= disable
+  endif
+  if exists('*echoraw')
+    call echoraw(enable)
+  endif
+  let s:keyboard_protocol_configured = 1
+endfunction
+
+function! s:map_legacy_shift_enter() abort
+  if v:version >= 901
+    return
+  endif
+  " tmux before 3.5 emits CSI-u for extended keys, while other terminals may
+  " emit xterm's modifyOtherKeys form. Vim 9.0 understands neither form for
+  " Shift-Enter natively, so teach it two private terminal key codes.
+  for [name, key] in [['E1', "\<Esc>[13;2u"], ['E2', "\<Esc>[27;2;13~"]]
+    execute 'set t_' . name . '=' . key
+    let term_key = '<t_' . name . '>'
+    if empty(maparg(term_key, 'n'))
+      execute 'nmap <buffer> <silent> ' . term_key . ' <Plug>(EuporieRunCell)'
+    endif
+    if empty(maparg(term_key, 'i'))
+      execute 'imap <buffer> <silent> ' . term_key . ' <Plug>(EuporieRunCell)'
+    endif
+    if empty(maparg(term_key, 'x'))
+      execute 'xmap <buffer> <silent> ' . term_key . ' <Plug>(EuporieSendVisual)'
+    endif
+  endfor
 endfunction
 
 function! euporie#project_root() abort
@@ -257,13 +311,26 @@ endfunction
 
 function! euporie#setup_buffer() abort
   nnoremap <buffer> <silent> <Plug>(EuporieRunCell) :EuporieRunCell<CR>
+  inoremap <buffer> <silent> <Plug>(EuporieRunCell) <C-G>u<C-O>:EuporieRunCell<CR>
   nnoremap <buffer> <silent> <Plug>(EuporieSendCell) :EuporieSendCell<CR>
   nnoremap <buffer> <silent> <Plug>(EuporieSendLine) :EuporieSendLine<CR>
   xnoremap <buffer> <silent> <Plug>(EuporieSendVisual) :<C-U>'<,'>EuporieSend<CR>
   nnoremap <buffer> <silent> <Plug>(EuporieInterrupt) :EuporieInterrupt<CR>
   nnoremap <buffer> <silent> <Plug>(EuporieFocus) :EuporieFocus<CR>
 
+  call s:configure_keyboard()
+
   if !s:setting('no_mappings', 0)
+    if empty(maparg('<S-CR>', 'n'))
+      nmap <buffer> <silent> <S-CR> <Plug>(EuporieRunCell)
+    endif
+    if empty(maparg('<S-CR>', 'i'))
+      imap <buffer> <silent> <S-CR> <Plug>(EuporieRunCell)
+    endif
+    if empty(maparg('<S-CR>', 'x'))
+      xmap <buffer> <silent> <S-CR> <Plug>(EuporieSendVisual)
+    endif
+    call s:map_legacy_shift_enter()
     if !hasmapto('<Plug>(EuporieRunCell)', 'n')
       nmap <buffer> <localleader>er <Plug>(EuporieRunCell)
     endif
