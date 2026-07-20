@@ -43,9 +43,12 @@ class Runtime:
         self.kernel_lock = threading.Lock()
         self.kernel_manager: Any = None
         self.kernel_client: Any = None
+        self.kernel_log: Any = None
+        self.transport_encryption = "disabled"
         self.console: subprocess.Popen[bytes] | None = None
         self.server: socketserver.TCPServer | None = None
         self.no_clients_since = time.monotonic()
+        self.touch_client(args.owner_client, args.owner_pid)
 
     def touch_client(self, client: str, pid: int) -> None:
         if not client:
@@ -66,7 +69,7 @@ class Runtime:
             self.clients = {
                 client: (seen, pid)
                 for client, (seen, pid) in self.clients.items()
-                if seen >= cutoff or process_is_alive(pid)
+                if (process_is_alive(pid) if pid > 0 else seen >= cutoff)
             }
             if not self.clients and not self.no_clients_since:
                 self.no_clients_since = time.monotonic()
@@ -171,6 +174,7 @@ def start_kernel(runtime: Runtime, connection_file: Path) -> None:
     from jupyter_client import KernelManager
 
     manager = KernelManager(kernel_name="python3", connection_file=str(connection_file))
+    runtime.kernel_manager = manager
     # Force the Python kernel to use the interpreter selected by `uv run`. This
     # is what makes project dependencies importable without installing a global
     # kernelspec for every uv environment.
@@ -181,12 +185,44 @@ def start_kernel(runtime: Runtime, connection_file: Path) -> None:
         "-f",
         "{connection_file}",
     ]
-    manager.start_kernel(cwd=str(runtime.args.root))
-    client = manager.client()
+
+    # jupyter_client 8.9 can provision CurveZMQ keys locally when the kernel
+    # advertises support. This avoids the ipykernel plaintext-TCP warning and
+    # protects all kernel traffic, even though it remains bound to localhost.
+    encrypted = False
+    try:
+        import zmq
+
+        if hasattr(manager, "transport_encryption") and zmq.has("curve"):
+            manager.transport_encryption = "required"
+            manager.kernel_spec.metadata = {
+                **(manager.kernel_spec.metadata or {}),
+                "supported_encryption": ["curve"],
+            }
+            encrypted = True
+    except Exception:
+        LOG.exception("CurveZMQ setup failed; falling back to localhost transport")
+
+    kernel_log_path = runtime.args.state_file.with_suffix(".kernel.log")
+    runtime.kernel_log = kernel_log_path.open("ab", buffering=0)
+    manager.start_kernel(
+        cwd=str(runtime.args.root),
+        stdout=runtime.kernel_log,
+        stderr=subprocess.STDOUT,
+    )
+    client_options = {}
+    if encrypted:
+        # jupyter_client 8.9 serializes these keys to text in manager.client(),
+        # while the client traits correctly require raw CurveZMQ key bytes.
+        client_options = {
+            "curve_publickey": manager.curve_publickey,
+            "curve_secretkey": manager.curve_secretkey,
+        }
+    client = manager.client(**client_options)
+    runtime.kernel_client = client
     client.start_channels()
     client.wait_for_ready(timeout=runtime.args.kernel_timeout)
-    runtime.kernel_manager = manager
-    runtime.kernel_client = client
+    runtime.transport_encryption = "curve" if encrypted else "disabled"
     # Match notebook behavior for `plt.show()` when matplotlib is part of the
     # uv project. A missing matplotlib is deliberately ignored.
     client.execute(
@@ -201,7 +237,8 @@ def start_kernel(runtime: Runtime, connection_file: Path) -> None:
 
 def euporie_command(runtime: Runtime, connection_file: Path) -> list[str]:
     command = [
-        "euporie-console",
+        sys.executable,
+        str(Path(__file__).with_name("vim_euporie_console.py")),
         "--connection-file",
         str(connection_file),
         "--show-remote-inputs",
@@ -212,6 +249,8 @@ def euporie_command(runtime: Runtime, connection_file: Path) -> list[str]:
         "--multiplexer-passthrough",
         "--color-scheme",
         "dark",
+        "--color-depth",
+        "24",
     ]
     command.extend(json.loads(runtime.args.euporie_args_json))
     return command
@@ -221,7 +260,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--state-file", required=True, type=Path)
     parser.add_argument("--root", required=True, type=Path)
-    parser.add_argument("--idle-timeout", type=float, default=20.0)
+    parser.add_argument("--owner-client", default="")
+    parser.add_argument("--owner-pid", type=int, default=0)
+    parser.add_argument("--idle-timeout", type=float, default=0.0)
     parser.add_argument("--client-timeout", type=float, default=45.0)
     parser.add_argument("--kernel-timeout", type=float, default=60.0)
     parser.add_argument("--graphics", default="kitty-unicode")
@@ -259,7 +300,9 @@ def run(argv: list[str] | None = None) -> int:
         server_thread.start()
 
         runtime.console = subprocess.Popen(
-            euporie_command(runtime, connection_file), cwd=args.root
+            euporie_command(runtime, connection_file),
+            cwd=args.root,
+            stderr=runtime.kernel_log,
         )
         # Give Euporie time to subscribe to IOPub before Vim can send the first
         # cell, otherwise very fast first executions can be invisible.
@@ -278,6 +321,7 @@ def run(argv: list[str] | None = None) -> int:
                 "kernel_pid": runtime.kernel_manager.provisioner.pid,
                 "root": str(args.root),
                 "connection_file": str(connection_file),
+                "transport_encryption": runtime.transport_encryption,
             },
         )
 
@@ -311,6 +355,8 @@ def run(argv: list[str] | None = None) -> int:
             runtime.kernel_client.stop_channels()
         if runtime.kernel_manager is not None and runtime.kernel_manager.has_kernel:
             runtime.kernel_manager.shutdown_kernel(now=True)
+        if runtime.kernel_log is not None:
+            runtime.kernel_log.close()
         state_file.unlink(missing_ok=True)
         connection_file.unlink(missing_ok=True)
 

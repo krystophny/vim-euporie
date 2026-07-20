@@ -111,7 +111,7 @@ The default Python-buffer mappings use `maplocalleader` (a backslash unless you 
 
 Commands include `:EuporieStart`, `:EuporieStop`, `:EuporieRestart`, `:EuporieFocus`, `:EuporieStatus`, `:EuporieInterrupt`, `:EuporieSendCell`, `:EuporieRunCell`, `:[range]EuporieSend`, and `:EuporieSendFile`.
 
-The Euporie pane is a real interactive console: focus it with `\ef`, type exploratory code directly, inspect and scroll output, use completions, or work with widgets. Input sent from Vim and input typed into Euporie share the same kernel. When the final attached Vim exits, the pane and kernel close automatically after a short grace period.
+The Euporie pane is a real interactive console: focus it with `\ef`, type exploratory code directly, inspect and scroll output, use completions, or work with widgets. Input sent from Vim and input typed into Euporie share the same kernel. When the final attached Vim exits, the pane and kernel close automatically. Set a positive idle timeout if you want a grace period for reopening Vim.
 
 ## Configuration
 
@@ -122,7 +122,7 @@ let g:vim_euporie_auto_start = 1
 let g:vim_euporie_graphics = 'kitty-unicode'
 let g:vim_euporie_split = 'horizontal'
 let g:vim_euporie_pane_percent = 40
-let g:vim_euporie_idle_timeout = 20
+let g:vim_euporie_idle_timeout = 0
 ```
 
 Set `g:vim_euporie_split = 'vertical'` for a pane below Vim. To keep only `<Plug>` mappings and define your own:
