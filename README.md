@@ -48,6 +48,12 @@ For reliable Kitty graphics through tmux, add this to `~/.tmux.conf`:
 set -g allow-passthrough on
 ```
 
+tmux drops graphics passthrough emitted by an inactive pane. For
+`kitty-unicode`, vim-euporie automatically sends the position-independent
+image upload and virtual-placement commands to the attached tmux client's TTY;
+the Unicode placeholder cells still pass through tmux, so images scroll and
+redraw with the surrounding output while Vim keeps focus.
+
 The plugin also enables that option in the running tmux server by default.
 
 Ghostty 1.3.1 has upstream Kitty Unicode-placement bugs inside tmux. Use a

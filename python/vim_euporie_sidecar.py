@@ -11,6 +11,7 @@ from pathlib import Path
 import secrets
 import signal
 import socketserver
+import stat
 import subprocess
 import sys
 import threading
@@ -256,6 +257,48 @@ def euporie_command(runtime: Runtime, connection_file: Path) -> list[str]:
     return command
 
 
+def tmux_client_tty() -> str:
+    """Return the writable outer client TTY for this tmux pane.
+
+    tmux intentionally drops passthrough sequences emitted by inactive panes.
+    Kitty Unicode placeholders only need tmux for the placeholder text; their
+    image uploads and virtual placements are position-independent and can be
+    written directly to the attached terminal.
+    """
+    pane = os.environ.get("TMUX_PANE", "")
+    if not pane or not os.environ.get("TMUX"):
+        return ""
+    try:
+        result = subprocess.run(
+            ["tmux", "display-message", "-p", "-t", pane, "#{client_tty}"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        tty = Path(result.stdout.strip())
+        tty_stat = tty.stat()
+    except (OSError, subprocess.SubprocessError):
+        LOG.exception("could not resolve tmux client TTY")
+        return ""
+    if not tty.is_absolute() or not stat.S_ISCHR(tty_stat.st_mode):
+        LOG.error("tmux returned a non-TTY client path: %s", tty)
+        return ""
+    if tty_stat.st_uid != os.getuid() or not os.access(tty, os.W_OK):
+        LOG.error("tmux client TTY is not writable by this user: %s", tty)
+        return ""
+    return str(tty)
+
+
+def euporie_environment(runtime: Runtime) -> dict[str, str]:
+    """Build the console environment, including direct Kitty upload routing."""
+    environment = os.environ.copy()
+    environment.pop("VIM_EUPORIE_KITTY_TTY", None)
+    if runtime.args.graphics == "kitty-unicode":
+        if tty := tmux_client_tty():
+            environment["VIM_EUPORIE_KITTY_TTY"] = tty
+    return environment
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--state-file", required=True, type=Path)
@@ -302,6 +345,7 @@ def run(argv: list[str] | None = None) -> int:
         runtime.console = subprocess.Popen(
             euporie_command(runtime, connection_file),
             cwd=args.root,
+            env=euporie_environment(runtime),
             stderr=runtime.kernel_log,
         )
         # Give Euporie time to subscribe to IOPub before Vim can send the first

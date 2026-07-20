@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+import os
 import sys
+from typing import Callable
 
 
 PASSTHROUGH_QUERY_METHODS = (
@@ -18,6 +20,45 @@ PASSTHROUGH_QUERY_METHODS = (
     "ask_for_device_attributes",
     "ask_for_iterm_graphics_status",
 )
+
+
+def direct_kitty_passthrough(
+    original: Callable[..., str], write: Callable[[bytes], int]
+) -> Callable[..., str]:
+    """Route raw Kitty graphics commands around tmux.
+
+    Unicode image uploads and virtual placements do not carry a screen
+    position. Writing them to the outer terminal is therefore safe, while the
+    placeholder characters continue through tmux and determine where the
+    image is drawn and how it moves through scrollback.
+    """
+
+    def routed(command: str, config: object | None = None) -> str:
+        if command.startswith("\x1b_G"):
+            payload = command.encode("utf-8")
+            while payload:
+                written = write(payload)
+                if written <= 0:
+                    raise OSError("short write to Kitty client TTY")
+                payload = payload[written:]
+            return ""
+        return original(command, config)
+
+    return routed
+
+
+def install_direct_kitty_uploads() -> None:
+    """Bypass tmux for Kitty commands when an outer client TTY is supplied."""
+    tty = os.environ.get("VIM_EUPORIE_KITTY_TTY", "")
+    if not tty:
+        return
+
+    from euporie.core import graphics
+
+    descriptor = os.open(tty, os.O_WRONLY | os.O_NOCTTY)
+    graphics.passthrough = direct_kitty_passthrough(
+        graphics.passthrough, lambda payload: os.write(descriptor, payload)
+    )
 
 
 def suppress_passthrough_queries() -> None:
@@ -50,6 +91,7 @@ def main() -> None:
         from euporie.core.layout import containers as _containers  # noqa: F401
 
         suppress_passthrough_queries()
+        install_direct_kitty_uploads()
         euporie_main.main("console")
     else:
         # Euporie 3.x moved the output layer to apptk and no longer uses the
@@ -57,6 +99,7 @@ def main() -> None:
         from euporie.console.app import ConsoleApp
 
         suppress_passthrough_queries()
+        install_direct_kitty_uploads()
         ConsoleApp.launch()
 
 

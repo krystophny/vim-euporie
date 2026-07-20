@@ -2,6 +2,7 @@ import importlib.util
 from pathlib import Path
 from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 
 MODULE_PATH = Path(__file__).parents[1] / "python" / "vim_euporie_sidecar.py"
@@ -86,6 +87,32 @@ class ConsoleLaunchTests(unittest.TestCase):
         self.assertTrue(command[1].endswith("vim_euporie_console.py"))
         self.assertIn("--multiplexer-passthrough", command)
         self.assertEqual("24", command[command.index("--color-depth") + 1])
+
+    def test_kitty_commands_are_written_directly(self):
+        written = []
+
+        def original(command, config=None):
+            return f"wrapped:{command}"
+
+        routed = CONSOLE.direct_kitty_passthrough(
+            original, lambda payload: written.append(payload) or len(payload)
+        )
+        command = "\x1b_Ga=t,q=2;YWJj\x1b\\"
+        self.assertEqual("", routed(command))
+        self.assertEqual([command.encode()], written)
+        self.assertEqual("wrapped:\x1b[31m", routed("\x1b[31m"))
+
+    def test_only_kitty_unicode_mode_receives_direct_tty(self):
+        runtime = SimpleNamespace(args=SimpleNamespace(graphics="kitty-unicode"))
+        with patch.object(SIDECAR, "tmux_client_tty", return_value="/dev/pts/7"):
+            environment = SIDECAR.euporie_environment(runtime)
+        self.assertEqual("/dev/pts/7", environment["VIM_EUPORIE_KITTY_TTY"])
+
+        runtime.args.graphics = "kitty"
+        with patch.object(SIDECAR, "tmux_client_tty") as resolve:
+            environment = SIDECAR.euporie_environment(runtime)
+        resolve.assert_not_called()
+        self.assertNotIn("VIM_EUPORIE_KITTY_TTY", environment)
 
 
 if __name__ == "__main__":
