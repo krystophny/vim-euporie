@@ -179,7 +179,9 @@ function! s:uv_command(ctx) abort
         \ 'python', s:plugin_root . '/python/vim_euporie_sidecar.py',
         \ '--state-file', a:ctx.state,
         \ '--root', a:ctx.root,
-        \ '--idle-timeout', string(s:setting('idle_timeout', 20)),
+        \ '--owner-client', a:ctx.client,
+        \ '--owner-pid', string(getpid()),
+        \ '--idle-timeout', string(s:setting('idle_timeout', 0)),
         \ '--graphics', s:setting('graphics', 'kitty-unicode'),
         \ '--euporie-args-json', json_encode(s:setting('euporie_args', [])),
         \ ])
@@ -229,6 +231,9 @@ function! euporie#start() abort
     return 0
   endif
   let ctx.pane = pane
+  " The sidecar receives this client at launch, before its control socket is
+  " ready. This also lets it notice a Vim which exits during startup.
+  let ctx.attached = 1
   call s:tmux(['select-pane', '-t', pane, '-T', 'euporie:' . fnamemodify(ctx.root, ':t')])
   call s:ensure_heartbeat()
   return 1
@@ -450,9 +455,9 @@ endfunction
 
 function! euporie#detach_all() abort
   for ctx in values(s:contexts)
-    if ctx.attached
-      call s:request(ctx, {'action': 'detach', 'client': ctx.client}, 1)
-      let ctx.attached = 0
-    endif
+    " Always attempt the detach. A context can be registered by the sidecar's
+    " launch arguments before Vim has observed the state file.
+    call s:request(ctx, {'action': 'detach', 'client': ctx.client}, 1)
+    let ctx.attached = 0
   endfor
 endfunction

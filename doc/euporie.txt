@@ -44,7 +44,7 @@ g:vim_euporie_pane_percent      Default: 40
 g:vim_euporie_split             "horizontal" or "vertical"
 g:vim_euporie_graphics          Default: "kitty-unicode"
 g:vim_euporie_configure_tmux    Enable allow-passthrough; default: 1
-g:vim_euporie_idle_timeout      Seconds after final Vim detaches; default: 20
+g:vim_euporie_idle_timeout      Seconds after final Vim detaches; default: 0
 g:vim_euporie_start_timeout     First-start timeout; default: 90
 g:vim_euporie_with              uv overlay packages; default:
                                 ["euporie", "ipykernel"]
@@ -57,7 +57,8 @@ Otherwise the nearest pyproject.toml, uv.lock, or .git directory is used.
 
 Each tmux window and project root shares one pane and kernel. Clients send
 heartbeats, so the pane survives a handoff between Vim instances and is
-removed automatically after the final client exits.
+removed automatically after the final client exits. Set a positive
+g:vim_euporie_idle_timeout to keep it alive briefly during a handoff.
 
 Python files containing a PEP 723 "# /// script" metadata block use the
 dependencies declared in that block and receive a separate pane and kernel.
