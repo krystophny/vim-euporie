@@ -1,0 +1,18 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  debian-bookworm:
+    runs-on: ubuntu-latest
+    container: debian:bookworm
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Vim 9 and Python
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends vim-nox python3
+      - name: Run tests
+        run: sh tests/run.sh

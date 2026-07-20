@@ -1,0 +1,62 @@
+*euporie.txt*  Interactive Jupyter cells in Euporie beside classic Vim
+
+INTRODUCTION                                            *vim-euporie*
+
+vim-euporie opens and manages an Euporie console in a tmux pane. Code is
+edited in Vim and executed in a project-local Jupyter kernel. Rich output is
+rendered by Euporie using the outer terminal's graphics protocol.
+
+The default target is Vim 9 inside tmux inside Ghostty. Vim does not need to
+be compiled with Python support. The external Python environment is resolved
+by uv.
+
+COMMANDS                                                *euporie-commands*
+
+:EuporieStart       Start or attach to the project sidecar.
+:EuporieStop        Stop the project sidecar, kernel, and pane.
+:EuporieRestart     Restart them.
+:EuporieFocus       Focus the managed tmux pane.
+:EuporieStatus      Show pane, kernel, and client status.
+:EuporieInterrupt   Interrupt the kernel.
+:EuporieSendCell    Execute the current # %% cell.
+:EuporieRunCell     Execute the cell and move to the next one.
+:[range]EuporieSend Execute a line range.
+:EuporieSendLine    Execute the current line.
+:EuporieSendFile    Execute the entire buffer.
+
+PLUG MAPPINGS                                           *euporie-mappings*
+
+vim-euporie intentionally defines no ordinary key mappings. Suggested ones:
+>
+  nmap <localleader>er <Plug>(EuporieRunCell)
+  nmap <localleader>ec <Plug>(EuporieSendCell)
+  nmap <localleader>el <Plug>(EuporieSendLine)
+  xmap <localleader>e  <Plug>(EuporieSendVisual)
+  nmap <localleader>ei <Plug>(EuporieInterrupt)
+  nmap <localleader>ef <Plug>(EuporieFocus)
+<
+The <Plug> mappings are installed for Python buffers.
+
+CONFIGURATION                                           *euporie-config*
+
+g:vim_euporie_auto_start        Default: 1
+g:vim_euporie_pane_percent      Default: 40
+g:vim_euporie_split             "horizontal" or "vertical"
+g:vim_euporie_graphics          Default: "kitty-unicode"
+g:vim_euporie_configure_tmux    Enable allow-passthrough; default: 1
+g:vim_euporie_idle_timeout      Seconds after final Vim detaches; default: 20
+g:vim_euporie_start_timeout     First-start timeout; default: 90
+g:vim_euporie_with              uv overlay packages; default:
+                                ["euporie", "ipykernel"]
+g:vim_euporie_uv_args           Extra uv arguments; default: []
+g:vim_euporie_euporie_args      Extra Euporie arguments; default: []
+g:vim_euporie_no_mappings       Only define <Plug> mappings; default: 0
+
+Set b:vim_euporie_root or g:vim_euporie_root to override project detection.
+Otherwise the nearest pyproject.toml, uv.lock, or .git directory is used.
+
+Each tmux window and project root shares one pane and kernel. Clients send
+heartbeats, so the pane survives a handoff between Vim instances and is
+removed automatically after the final client exits.
+
+ vim:tw=78:ts=8:noet:ft=help:norl:

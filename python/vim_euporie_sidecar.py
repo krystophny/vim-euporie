@@ -1,0 +1,319 @@
+#!/usr/bin/env python3
+"""Own a project kernel, an Euporie console, and Vim's control channel."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import logging
+import os
+from pathlib import Path
+import secrets
+import signal
+import socketserver
+import subprocess
+import sys
+import threading
+import time
+from typing import Any
+
+LOG = logging.getLogger("vim-euporie")
+MAX_REQUEST_BYTES = 16 * 1024 * 1024
+
+
+def prepare_code(code: str, kind: str) -> str:
+    """Convert a script cell into code suitable for a Jupyter execute request."""
+    if kind == "markdown":
+        return (
+            "from IPython.display import Markdown as _VimEuporieMarkdown, display as _VimEuporieDisplay\n"
+            f"_VimEuporieDisplay(_VimEuporieMarkdown({code!r}))"
+        )
+    return code
+
+
+class Runtime:
+    """Mutable process and client state shared with the TCP handler."""
+
+    def __init__(self, args: argparse.Namespace) -> None:
+        self.args = args
+        self.token = secrets.token_urlsafe(32)
+        self.stop_event = threading.Event()
+        self.clients: dict[str, tuple[float, int]] = {}
+        self.clients_lock = threading.Lock()
+        self.kernel_lock = threading.Lock()
+        self.kernel_manager: Any = None
+        self.kernel_client: Any = None
+        self.console: subprocess.Popen[bytes] | None = None
+        self.server: socketserver.TCPServer | None = None
+        self.no_clients_since = time.monotonic()
+
+    def touch_client(self, client: str, pid: int) -> None:
+        if not client:
+            return
+        with self.clients_lock:
+            self.clients[client] = (time.monotonic(), pid)
+            self.no_clients_since = 0.0
+
+    def detach_client(self, client: str) -> None:
+        with self.clients_lock:
+            self.clients.pop(client, None)
+            if not self.clients:
+                self.no_clients_since = time.monotonic()
+
+    def prune_clients(self) -> int:
+        cutoff = time.monotonic() - self.args.client_timeout
+        with self.clients_lock:
+            self.clients = {
+                client: (seen, pid)
+                for client, (seen, pid) in self.clients.items()
+                if seen >= cutoff or process_is_alive(pid)
+            }
+            if not self.clients and not self.no_clients_since:
+                self.no_clients_since = time.monotonic()
+            return len(self.clients)
+
+    def execute(self, code: str, kind: str) -> str:
+        code = prepare_code(code, kind)
+        with self.kernel_lock:
+            return self.kernel_client.execute(
+                code, silent=False, store_history=True, allow_stdin=False
+            )
+
+    def interrupt(self) -> None:
+        with self.kernel_lock:
+            self.kernel_manager.interrupt_kernel()
+
+
+class ControlHandler(socketserver.StreamRequestHandler):
+    """Handle one authenticated, newline-delimited JSON request."""
+
+    def handle(self) -> None:
+        runtime: Runtime = self.server.runtime  # type: ignore[attr-defined]
+        try:
+            raw = self.rfile.readline(MAX_REQUEST_BYTES + 1)
+            if len(raw) > MAX_REQUEST_BYTES:
+                raise ValueError("request is too large")
+            request = json.loads(raw)
+            if not secrets.compare_digest(str(request.get("token", "")), runtime.token):
+                raise PermissionError("invalid control token")
+            action = request.get("action")
+            client = str(request.get("client", ""))
+            pid = int(request.get("pid", 0))
+
+            if action in {"attach", "heartbeat", "execute", "interrupt", "status"}:
+                runtime.touch_client(client, pid)
+
+            if action == "execute":
+                code = request.get("code")
+                if not isinstance(code, str):
+                    raise TypeError("code must be a string")
+                reply = {
+                    "ok": True,
+                    "message_id": runtime.execute(
+                        code, str(request.get("kind", "code"))
+                    ),
+                }
+            elif action == "interrupt":
+                runtime.interrupt()
+                reply = {"ok": True}
+            elif action == "detach":
+                runtime.detach_client(client)
+                reply = {"ok": True}
+            elif action == "shutdown":
+                runtime.stop_event.set()
+                reply = {"ok": True}
+            elif action in {"attach", "heartbeat", "status"}:
+                reply = {
+                    "ok": True,
+                    "clients": runtime.prune_clients(),
+                    "kernel_pid": runtime.kernel_manager.provisioner.pid,
+                    "pane_id": os.environ.get("TMUX_PANE", ""),
+                }
+            else:
+                raise ValueError(f"unknown action: {action!r}")
+        except Exception as error:  # Control errors must be returned to Vim.
+            LOG.exception("control request failed")
+            reply = {"ok": False, "error": str(error)}
+        self.wfile.write(json.dumps(reply, separators=(",", ":")).encode() + b"\n")
+
+
+class ControlServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
+    daemon_threads = True
+    allow_reuse_address = False
+
+    def __init__(self, runtime: Runtime) -> None:
+        self.runtime = runtime
+        super().__init__(("127.0.0.1", 0), ControlHandler)
+
+
+def process_is_alive(pid: int) -> bool:
+    """Return whether a local Vim process still owns a client registration."""
+    if pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def atomic_write_json(path: Path, value: dict[str, Any]) -> None:
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
+    temporary.chmod(0o600)
+    temporary.replace(path)
+
+
+def start_kernel(runtime: Runtime, connection_file: Path) -> None:
+    from jupyter_client import KernelManager
+
+    manager = KernelManager(kernel_name="python3", connection_file=str(connection_file))
+    # Force the Python kernel to use the interpreter selected by `uv run`. This
+    # is what makes project dependencies importable without installing a global
+    # kernelspec for every uv environment.
+    manager.kernel_spec.argv = [
+        sys.executable,
+        "-m",
+        "ipykernel_launcher",
+        "-f",
+        "{connection_file}",
+    ]
+    manager.start_kernel(cwd=str(runtime.args.root))
+    client = manager.client()
+    client.start_channels()
+    client.wait_for_ready(timeout=runtime.args.kernel_timeout)
+    runtime.kernel_manager = manager
+    runtime.kernel_client = client
+    # Match notebook behavior for `plt.show()` when matplotlib is part of the
+    # uv project. A missing matplotlib is deliberately ignored.
+    client.execute(
+        "try:\n"
+        "    get_ipython().run_line_magic('matplotlib', 'inline')\n"
+        "except (ImportError, ModuleNotFoundError):\n"
+        "    pass",
+        silent=True,
+        store_history=False,
+    )
+
+
+def euporie_command(runtime: Runtime, connection_file: Path) -> list[str]:
+    command = [
+        "euporie-console",
+        "--connection-file",
+        str(connection_file),
+        "--show-remote-inputs",
+        "--show-remote-outputs",
+        "--graphics",
+        runtime.args.graphics,
+        "--force-graphics",
+        "--multiplexer-passthrough",
+        "--color-scheme",
+        "dark",
+    ]
+    command.extend(json.loads(runtime.args.euporie_args_json))
+    return command
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--state-file", required=True, type=Path)
+    parser.add_argument("--root", required=True, type=Path)
+    parser.add_argument("--idle-timeout", type=float, default=20.0)
+    parser.add_argument("--client-timeout", type=float, default=45.0)
+    parser.add_argument("--kernel-timeout", type=float, default=60.0)
+    parser.add_argument("--graphics", default="kitty-unicode")
+    parser.add_argument("--euporie-args-json", default="[]")
+    return parser.parse_args(argv)
+
+
+def run(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
+    args.root = args.root.resolve()
+    state_file = args.state_file.resolve()
+    log_file = state_file.with_suffix(state_file.suffix + ".log")
+    logging.basicConfig(
+        filename=log_file,
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(message)s",
+    )
+    runtime = Runtime(args)
+    connection_file = state_file.with_suffix(".kernel.json")
+
+    def request_stop(_signum: int, _frame: Any) -> None:
+        runtime.stop_event.set()
+
+    signal.signal(signal.SIGTERM, request_stop)
+    signal.signal(signal.SIGINT, request_stop)
+    if hasattr(signal, "SIGHUP"):
+        signal.signal(signal.SIGHUP, request_stop)
+
+    try:
+        start_kernel(runtime, connection_file)
+        runtime.server = ControlServer(runtime)
+        server_thread = threading.Thread(
+            target=runtime.server.serve_forever, name="vim-euporie-control", daemon=True
+        )
+        server_thread.start()
+
+        runtime.console = subprocess.Popen(
+            euporie_command(runtime, connection_file), cwd=args.root
+        )
+        # Give Euporie time to subscribe to IOPub before Vim can send the first
+        # cell, otherwise very fast first executions can be invisible.
+        time.sleep(0.75)
+        if runtime.console.poll() is not None:
+            raise RuntimeError("euporie-console exited during startup")
+
+        atomic_write_json(
+            state_file,
+            {
+                "version": 1,
+                "port": runtime.server.server_address[1],
+                "token": runtime.token,
+                "pane_id": os.environ.get("TMUX_PANE", ""),
+                "pid": os.getpid(),
+                "kernel_pid": runtime.kernel_manager.provisioner.pid,
+                "root": str(args.root),
+                "connection_file": str(connection_file),
+            },
+        )
+
+        while not runtime.stop_event.wait(0.25):
+            if runtime.console.poll() is not None:
+                break
+            client_count = runtime.prune_clients()
+            if (
+                client_count == 0
+                and runtime.no_clients_since
+                and time.monotonic() - runtime.no_clients_since >= args.idle_timeout
+            ):
+                LOG.info("stopping after the final Vim client detached")
+                break
+        return 0
+    except Exception:
+        LOG.exception("sidecar failed")
+        print(f"vim-euporie failed; see {log_file}", file=sys.stderr)
+        return 1
+    finally:
+        if runtime.server is not None:
+            runtime.server.shutdown()
+            runtime.server.server_close()
+        if runtime.console is not None and runtime.console.poll() is None:
+            runtime.console.terminate()
+            try:
+                runtime.console.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                runtime.console.kill()
+        if runtime.kernel_client is not None:
+            runtime.kernel_client.stop_channels()
+        if runtime.kernel_manager is not None and runtime.kernel_manager.has_kernel:
+            runtime.kernel_manager.shutdown_kernel(now=True)
+        state_file.unlink(missing_ok=True)
+        connection_file.unlink(missing_ok=True)
+
+
+if __name__ == "__main__":
+    raise SystemExit(run())
