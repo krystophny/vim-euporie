@@ -56,15 +56,30 @@ function! euporie#project_root() abort
   return candidates[0]
 endfunction
 
+function! euporie#has_inline_metadata() abort
+  let last = min([line('$'), 100])
+  return !empty(filter(getline(1, last),
+        \ {_, text -> text =~# '^#\s*///\s*script\s*$'}))
+endfunction
+
+function! s:inline_script() abort
+  if &filetype !=# 'python' || !euporie#has_inline_metadata()
+    return ''
+  endif
+  return expand('%:p')
+endfunction
+
 function! s:context() abort
   let root = euporie#project_root()
   let scope = s:tmux_scope()
-  let key = sha256(scope . "\n" . root)[0:19]
+  let script = s:inline_script()
+  let key = sha256(scope . "\n" . root . "\n" . script)[0:19]
   let state = s:runtime_dir() . '/' . key . '.json'
   if !has_key(s:contexts, key)
     let s:contexts[key] = {
           \ 'key': key,
           \ 'root': root,
+          \ 'script': script,
           \ 'scope': scope,
           \ 'state': state,
           \ 'client': printf('vim-%d-%s', getpid(), key),
@@ -149,7 +164,9 @@ endfunction
 
 function! s:uv_command(ctx) abort
   let command = [s:setting('uv_command', 'uv'), 'run']
-  if filereadable(a:ctx.root . '/pyproject.toml')
+  if !empty(a:ctx.script)
+    call extend(command, ['--no-project', '--with-requirements', a:ctx.script])
+  elseif filereadable(a:ctx.root . '/pyproject.toml')
     call extend(command, ['--project', a:ctx.root])
   else
     call add(command, '--no-project')
@@ -184,6 +201,10 @@ function! euporie#start() abort
   endif
 
   let ctx = s:context()
+  if !empty(ctx.script) && (!filereadable(ctx.script) || &modified)
+    echoerr 'vim-euporie: save the PEP 723 script before starting its kernel'
+    return 0
+  endif
   let state = s:read_state(ctx)
   if !empty(state) && s:pane_alive(get(state, 'pane_id', ''))
     let ctx.pane = state.pane_id

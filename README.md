@@ -66,11 +66,24 @@ Or with vim-plug:
 Plug 'krystophny/vim-euporie'
 ```
 
-Add plotting support to each uv project in the normal way:
+For a new notebook-style directory, first create a minimal uv project and add
+plotting support:
 
 ```sh
+uv init --bare
 uv add matplotlib
 ```
+
+If you prefer a single self-contained script with PEP 723 metadata, use:
+
+```sh
+uv add --script analysis.py matplotlib
+```
+
+vim-euporie detects the inline metadata and launches the kernel with those
+dependencies. Each metadata-bearing script receives its own pane and kernel.
+If you change its dependency metadata while Vim is open, run
+`:EuporieRestart`.
 
 Then start Vim from inside tmux and edit a Python file:
 
@@ -79,7 +92,9 @@ tmux
 uv run vim analysis.py
 ```
 
-Starting Vim through `uv run` is optional. The plugin itself launches the kernel with `uv run --project <detected-root>`.
+Starting Vim through `uv run` is optional. The plugin itself launches the
+kernel through the detected uv project or the current script's inline
+metadata.
 
 ## Everyday use
 
@@ -134,7 +149,13 @@ Project detection uses the nearest `pyproject.toml`, `uv.lock`, or `.git` direct
 
 ## Lifecycle model
 
-The sharing key is `(tmux window, project root)`, so related Python buffers share one pane and one live namespace. Vim clients register and send heartbeats. A second Vim in the same tmux window can attach to the existing sidecar; stale clients expire, and the sidecar cleans up the kernel, connection file, control socket state, and tmux pane when unused.
+The sharing key is `(tmux window, project root)` for uv projects, so related
+Python buffers share one pane and one live namespace. Standalone PEP 723
+scripts are keyed separately because they may declare different dependencies.
+Vim clients register and send heartbeats. A second Vim in the same tmux window
+can attach to the existing sidecar; stale clients expire, and the sidecar
+cleans up the kernel, connection file, control state, and tmux pane when
+unused.
 
 Control traffic is bound to `127.0.0.1` and authenticated with a random token stored in a mode-0600 runtime file. No Jupyter port is exposed beyond its normal localhost connection sockets.
 
