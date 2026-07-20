@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import os
+import subprocess
 import sys
+import threading
 from typing import Callable
 
 
@@ -23,7 +25,9 @@ PASSTHROUGH_QUERY_METHODS = (
 
 
 def direct_kitty_passthrough(
-    original: Callable[..., str], write: Callable[[bytes], int]
+    original: Callable[..., str],
+    write: Callable[[bytes], int],
+    schedule_redraw: Callable[[], None] | None = None,
 ) -> Callable[..., str]:
     """Route raw Kitty graphics commands around tmux.
 
@@ -41,6 +45,12 @@ def direct_kitty_passthrough(
                 if written <= 0:
                     raise OSError("short write to Kitty client TTY")
                 payload = payload[written:]
+            # tmux can leave the first incremental paint of placeholder cells
+            # stale. A client redraw resolves them, just as the first mouse
+            # wheel event does, without changing the scroll position.
+            header = command.partition(";")[0]
+            if schedule_redraw is not None and "U=1" in header.split(","):
+                schedule_redraw()
             return ""
         return original(command, config)
 
@@ -56,8 +66,27 @@ def install_direct_kitty_uploads() -> None:
     from euporie.core import graphics
 
     descriptor = os.open(tty, os.O_WRONLY | os.O_NOCTTY)
+
+    def schedule_redraw() -> None:
+        def redraw() -> None:
+            subprocess.run(
+                ["tmux", "refresh-client", "-t", tty],
+                check=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+
+        # The virtual placement is created while prompt_toolkit is still
+        # building its output. Redraw after the placeholder grid is flushed.
+        for delay in (0.05, 0.20):
+            timer = threading.Timer(delay, redraw)
+            timer.daemon = True
+            timer.start()
+
     graphics.passthrough = direct_kitty_passthrough(
-        graphics.passthrough, lambda payload: os.write(descriptor, payload)
+        graphics.passthrough,
+        lambda payload: os.write(descriptor, payload),
+        schedule_redraw,
     )
 
 

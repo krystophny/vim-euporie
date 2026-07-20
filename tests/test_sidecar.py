@@ -90,16 +90,24 @@ class ConsoleLaunchTests(unittest.TestCase):
 
     def test_kitty_commands_are_written_directly(self):
         written = []
+        redraws = []
 
         def original(command, config=None):
             return f"wrapped:{command}"
 
         routed = CONSOLE.direct_kitty_passthrough(
-            original, lambda payload: written.append(payload) or len(payload)
+            original,
+            lambda payload: written.append(payload) or len(payload),
+            lambda: redraws.append(True),
         )
         command = "\x1b_Ga=t,q=2;YWJj\x1b\\"
         self.assertEqual("", routed(command))
         self.assertEqual([command.encode()], written)
+        self.assertEqual([], redraws)
+
+        placement = "\x1b_Ga=p,U=1,i=1,p=1,c=20,r=10,q=2\x1b\\"
+        self.assertEqual("", routed(placement))
+        self.assertEqual([True], redraws)
         self.assertEqual("wrapped:\x1b[31m", routed("\x1b[31m"))
 
     def test_only_kitty_unicode_mode_receives_direct_tty(self):
