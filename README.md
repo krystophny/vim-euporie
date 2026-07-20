@@ -50,6 +50,11 @@ set -g allow-passthrough on
 
 The plugin also enables that option in the running tmux server by default.
 
+Ghostty 1.3.1 has upstream Kitty Unicode-placement bugs inside tmux. Use a
+post-1.3.1 build containing the graphics cache and cell-geometry fixes (or the
+next stable release) for reliable `kitty-unicode` output. As a compatibility
+fallback, set `g:vim_euporie_graphics = 'kitty'`.
+
 ## Installation
 
 With Vim 8/9 native packages:
@@ -113,10 +118,6 @@ The default Python-buffer mappings use `maplocalleader` (a backslash unless you 
 Commands include `:EuporieStart`, `:EuporieStop`, `:EuporieRestart`, `:EuporieFocus`, `:EuporieStatus`, `:EuporieInterrupt`, `:EuporieSendCell`, `:EuporieRunCell`, `:[range]EuporieSend`, and `:EuporieSendFile`.
 
 The Euporie pane is a real interactive console: focus it with `\ef`, type exploratory code directly, inspect and scroll output, use completions, or work with widgets. Input sent from Vim and input typed into Euporie share the same kernel. When the final attached Vim exits, the pane and kernel close automatically. Set a positive idle timeout if you want a grace period for reopening Vim.
-
-New Kitty Unicode placements receive an automatic full repaint after they pass
-through tmux. This prevents a freshly displayed figure or formula from
-remaining as placeholder glyphs until the pane is scrolled.
 
 ## Configuration
 
