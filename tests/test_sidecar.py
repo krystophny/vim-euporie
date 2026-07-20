@@ -76,6 +76,7 @@ class ConsoleLaunchTests(unittest.TestCase):
 
     def test_new_kitty_placement_schedules_redraws_once(self):
         scheduled = []
+        invalidations = []
 
         class Loop:
             def is_closed(self):
@@ -88,7 +89,11 @@ class ConsoleLaunchTests(unittest.TestCase):
             def __init__(self):
                 self.loaded = False
                 self.placements = set()
-                self.app = SimpleNamespace(loop=Loop(), invalidate=lambda: None)
+                self.app = SimpleNamespace(
+                    loop=Loop(),
+                    renderer=SimpleNamespace(_last_screen="previous screen"),
+                    invalidate=lambda: invalidations.append(True),
+                )
 
             def get_rendered_lines(self, width, height):
                 self.loaded = True
@@ -103,6 +108,12 @@ class ConsoleLaunchTests(unittest.TestCase):
             list(CONSOLE.GRAPHICS_REDRAW_DELAYS),
             [delay for delay, _callback in scheduled],
         )
+
+        for _delay, callback in scheduled:
+            control.app.renderer._last_screen = "previous screen"
+            callback()
+            self.assertIsNone(control.app.renderer._last_screen)
+        self.assertEqual([True, True], invalidations)
 
         control.get_rendered_lines(40, 20)
         self.assertEqual(2, len(scheduled))

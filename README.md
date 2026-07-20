@@ -114,8 +114,8 @@ Commands include `:EuporieStart`, `:EuporieStop`, `:EuporieRestart`, `:EuporieFo
 
 The Euporie pane is a real interactive console: focus it with `\ef`, type exploratory code directly, inspect and scroll output, use completions, or work with widgets. Input sent from Vim and input typed into Euporie share the same kernel. When the final attached Vim exits, the pane and kernel close automatically. Set a positive idle timeout if you want a grace period for reopening Vim.
 
-New Kitty Unicode placements are redrawn automatically after they pass through
-tmux. This prevents a freshly displayed figure or formula from briefly
+New Kitty Unicode placements receive an automatic full repaint after they pass
+through tmux. This prevents a freshly displayed figure or formula from
 remaining as placeholder glyphs until the pane is scrolled.
 
 ## Configuration

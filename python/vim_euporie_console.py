@@ -48,6 +48,20 @@ def suppress_passthrough_queries() -> None:
             setattr(Vt100_Output, method_name, ignore_query)
 
 
+def force_graphics_redraw(app) -> None:
+    """Force Prompt Toolkit to emit every visible cell on its next render.
+
+    ``Application.invalidate`` alone can retain the previous screen raster and
+    emit no terminal bytes for cells which compare equal.  Clearing only that
+    raster preserves the real cursor position and terminal modes, unlike
+    ``Renderer.reset``, while ensuring Kitty placeholder escapes are replayed.
+    """
+    renderer = getattr(app, "renderer", None)
+    if renderer is not None:
+        renderer._last_screen = None
+    app.invalidate()
+
+
 def patch_kitty_unicode_control(control_type: type) -> None:
     """Redraw after Euporie creates a Kitty Unicode virtual placement."""
     if getattr(control_type, "_vim_euporie_redraw_patched", False):
@@ -67,8 +81,12 @@ def patch_kitty_unicode_control(control_type: type) -> None:
             loop = getattr(app, "loop", None)
             is_closed = getattr(loop, "is_closed", None)
             if loop is not None and not (is_closed and is_closed()):
+
+                def redraw() -> None:
+                    force_graphics_redraw(app)
+
                 for delay in GRAPHICS_REDRAW_DELAYS:
-                    loop.call_later(delay, app.invalidate)
+                    loop.call_later(delay, redraw)
 
         return result
 
