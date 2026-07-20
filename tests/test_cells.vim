@@ -30,6 +30,9 @@ let cell = euporie#cell_range(9)
 call assert_equal(9, cell.first)
 call assert_equal(9, cell.last)
 
+call append(0, ['# /// script', '# dependencies = ["matplotlib"]', '# ///'])
+call assert_true(euporie#has_inline_metadata())
+
 if len(v:errors)
   call writefile(v:errors, '/dev/stderr')
   cquit
