@@ -74,6 +74,61 @@ class ConsoleLaunchTests(unittest.TestCase):
             set(CONSOLE.PASSTHROUGH_QUERY_METHODS),
         )
 
+    def test_new_kitty_placement_schedules_redraws_once(self):
+        scheduled = []
+
+        class Loop:
+            def is_closed(self):
+                return False
+
+            def call_later(self, delay, callback):
+                scheduled.append((delay, callback))
+
+        class Control:
+            def __init__(self):
+                self.loaded = False
+                self.placements = set()
+                self.app = SimpleNamespace(loop=Loop(), invalidate=lambda: None)
+
+            def get_rendered_lines(self, width, height):
+                self.loaded = True
+                self.placements.add((width, height))
+                return ["graphic"]
+
+        CONSOLE.patch_kitty_unicode_control(Control)
+        control = Control()
+
+        self.assertEqual(["graphic"], control.get_rendered_lines(40, 20))
+        self.assertEqual(
+            list(CONSOLE.GRAPHICS_REDRAW_DELAYS),
+            [delay for delay, _callback in scheduled],
+        )
+
+        control.get_rendered_lines(40, 20)
+        self.assertEqual(2, len(scheduled))
+
+    def test_resized_kitty_placement_schedules_redraws(self):
+        scheduled = []
+
+        class Loop:
+            def call_later(self, delay, callback):
+                scheduled.append((delay, callback))
+
+        class Control:
+            def __init__(self):
+                self.loaded = True
+                self.placements = {(40, 20)}
+                self.app = SimpleNamespace(loop=Loop(), invalidate=lambda: None)
+
+            def get_rendered_lines(self, width, height):
+                self.placements.add((width, height))
+                return []
+
+        CONSOLE.patch_kitty_unicode_control(Control)
+        Control().get_rendered_lines(50, 25)
+
+        self.assertEqual(2, len(scheduled))
+
     def test_sidecar_launches_the_guarded_console_with_fixed_color_depth(self):
         runtime = SimpleNamespace(
             args=SimpleNamespace(
