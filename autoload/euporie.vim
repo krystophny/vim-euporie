@@ -289,7 +289,11 @@ function! s:uv_command(ctx) abort
   else
     call add(command, '--no-project')
   endif
-  for package in s:setting('with', ['euporie', 'ipykernel'])
+  " ipympl is what makes `%matplotlib widget` work, which is the ordinary way
+  " to get a figure you can drag to rotate. Euporie renders its canvas and
+  " forwards mouse events to it, so 3D axes behave as they do in a browser
+  " rather than needing hand-built sliders.
+  for package in s:setting('with', ['euporie', 'ipykernel', 'ipympl'])
     call extend(command, ['--with', package])
   endfor
   call extend(command, s:setting('uv_args', []))

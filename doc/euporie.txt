@@ -68,7 +68,12 @@ g:vim_euporie_full_screen       Keep executed cells in Euporie's live layout,
 g:vim_euporie_idle_timeout      Seconds after final Vim detaches; default: 0
 g:vim_euporie_start_timeout     First-start timeout; default: 90
 g:vim_euporie_with              uv overlay packages; default:
-                                ["euporie", "ipykernel"]
+                                ["euporie", "ipykernel", "ipympl"]
+                                ipympl provides `%matplotlib widget`, which
+                                gives a live canvas: 3D axes can be dragged to
+                                rotate and the usual matplotlib toolbar works.
+                                Drop it from the list to avoid installing
+                                matplotlib.
 g:vim_euporie_uv_args           Extra uv arguments; default: []
 g:vim_euporie_euporie_args      Extra Euporie arguments; default: []
 g:vim_euporie_no_mappings       Only define <Plug> mappings; default: 0
