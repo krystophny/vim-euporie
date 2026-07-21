@@ -385,12 +385,19 @@ function! euporie#setup_buffer() abort
   call s:configure_keyboard()
 
   if !s:setting('no_mappings', 0)
-    " VTE terminals such as XFCE Terminal implement neither modifyOtherKeys
-    " nor the kitty keyboard protocol, so they send Shift-Enter as a plain
-    " Enter which no downstream layer can recover. They do send ESC CR for
-    " Alt-Enter, which tmux re-encodes as a modified key, so both keys run
-    " the current cell.
-    for key in ['<S-CR>', '<M-CR>']
+    " Several common setups cannot deliver Shift-Enter to Vim at all, so bind
+    " every key that does arrive:
+    "   <S-CR>  the real thing, on terminals which can report it
+    "   <M-CR>  VTE terminals such as XFCE Terminal implement neither
+    "           modifyOtherKeys nor the kitty keyboard protocol and send
+    "           Shift-Enter as a plain Enter, but they do send ESC CR here
+    "   <NL>    iTerm2 is widely configured to remap Shift-Enter to Ctrl-J for
+    "           multi-line input in other tools, and VTE reports Ctrl-J
+    "           distinctly as well, so this is the one key that survives
+    "           everywhere. It must be spelled <NL> rather than <C-J>: Insert
+    "           mode only matches the former, so an <C-J> mapping is silently
+    "           dead there while still working in Normal mode.
+    for key in ['<S-CR>', '<M-CR>', '<NL>']
       if empty(maparg(key, 'n'))
         execute 'nmap <buffer> <silent> ' . key . ' <Plug>(EuporieRunCell)'
       endif

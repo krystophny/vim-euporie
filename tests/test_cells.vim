@@ -43,6 +43,15 @@ call assert_equal('<Plug>(EuporieRunCell)', maparg('<M-CR>', 'n'))
 call assert_equal('<Plug>(EuporieRunCell)', maparg('<M-CR>', 'i'))
 call assert_equal('<Plug>(EuporieSendVisual)', maparg('<M-CR>', 'x'))
 
+" Ctrl-J is what an iTerm2 remapped for multi-line input actually sends, and
+" the only modified Enter VTE reports. It must be spelled <NL>: Insert mode
+" does not match a mapping registered as <C-J>, so spelling it that way leaves
+" Insert mode silently dead.
+call assert_equal('<Plug>(EuporieRunCell)', maparg('<NL>', 'n'))
+call assert_equal('<Plug>(EuporieRunCell)', maparg('<NL>', 'i'))
+call assert_equal('<Plug>(EuporieSendVisual)', maparg('<NL>', 'x'))
+call assert_equal('', maparg('<C-J>', 'i'))
+
 " The graphics mode must resolve to a concrete protocol Euporie understands,
 " never the "auto" placeholder.
 let s:mode = euporie#graphics_mode()

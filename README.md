@@ -148,7 +148,8 @@ The default Python-buffer mappings use `maplocalleader` (a backslash unless you 
 
 | Mapping | Action |
 |---|---|
-| `Alt+Enter` | Run the current cell and advance (or run the Visual selection) |
+| `Ctrl+J` | Run the current cell and advance (or run the Visual selection) |
+| `Alt+Enter` | Same |
 | `Shift+Enter` | Same, on terminals whose keyboard protocol can report it |
 | `\er` | Run current cell and advance |
 | `\ec` | Run current cell without moving |
@@ -184,6 +185,15 @@ and Vim's modifyOtherKeys level 2 so modified Enter keys remain distinct from
 Enter between tmux and Vim. Set `g:vim_euporie_configure_keyboard = 0` to
 manage that protocol yourself. A terminal-key fallback covers the CSI-u
 encoding emitted by Debian Bookworm's tmux 3.3a for Vim 9.0.
+
+`Ctrl+J` is bound because it is the one key that survives every setup, and it
+is worth knowing why. iTerm2 is very commonly configured to remap Shift+Enter
+to Ctrl+J so that other tools accept multi-line input; Vim then never sees
+Shift+Enter at all, no matter how tmux and Vim are configured. VTE terminals
+cannot report Shift+Enter either, but do report Ctrl+J distinctly. Note that
+the mapping must be spelled `<NL>` rather than `<C-J>`: Insert mode does not
+match a mapping registered under the latter name, so it works in Normal mode
+while silently doing nothing in Insert mode.
 
 Whether Shift+Enter reaches tmux at all depends on the outermost terminal.
 VTE-based terminals such as XFCE Terminal implement neither xterm's

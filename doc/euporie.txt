@@ -32,7 +32,9 @@ PLUG MAPPINGS                                           *euporie-mappings*
 
 vim-euporie defines these buffer-local mappings by default:
 >
-  <M-CR>                 Run cell and advance (send Visual selection)
+  <NL>                   Run cell and advance (send Visual selection); this
+                         is Ctrl-J, which every terminal can report
+  <M-CR>                 Same
   <S-CR>                 Same, when the outer terminal can report it
   nmap <localleader>er <Plug>(EuporieRunCell)
   nmap <localleader>ec <Plug>(EuporieSendCell)
