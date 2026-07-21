@@ -54,6 +54,21 @@ it receives, so everything else works and figures simply never appear. This is
 the usual cause of "no plots" on macOS, where Homebrew's tmux is built without
 the flag.
 
+### Figure size
+
+Euporie scales each figure to the width of the output area, computed from the
+terminal's cell size in pixels. Inside tmux, TIOCGWINSZ and `CSI 14 t` both
+answer with tmux's own rounded geometry rather than the attached terminal's,
+and where tmux reports no pixel size at all Euporie falls back to a hardcoded
+10x20 guess, which is what makes figures look small on HiDPI screens.
+vim-euporie takes the real size from tmux's `#{client_cell_width}` instead, so
+figures fill the pane.
+
+Figures are therefore as wide as the Euporie pane: widen it with
+`g:vim_euporie_pane_percent` to make them larger. Matplotlib's `figsize`
+controls the aspect ratio, so it changes a figure's height rather than its
+width.
+
 `g:vim_euporie_graphics = 'auto'` (the default) probes the running tmux for
 this directly: it renders a 27-byte Sixel into a throwaway tmux server and
 checks whether the cursor advanced. A build that really parses Sixel consumes
