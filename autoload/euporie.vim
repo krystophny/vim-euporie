@@ -321,15 +321,22 @@ function! euporie#setup_buffer() abort
   call s:configure_keyboard()
 
   if !s:setting('no_mappings', 0)
-    if empty(maparg('<S-CR>', 'n'))
-      nmap <buffer> <silent> <S-CR> <Plug>(EuporieRunCell)
-    endif
-    if empty(maparg('<S-CR>', 'i'))
-      imap <buffer> <silent> <S-CR> <Plug>(EuporieRunCell)
-    endif
-    if empty(maparg('<S-CR>', 'x'))
-      xmap <buffer> <silent> <S-CR> <Plug>(EuporieSendVisual)
-    endif
+    " VTE terminals such as XFCE Terminal implement neither modifyOtherKeys
+    " nor the kitty keyboard protocol, so they send Shift-Enter as a plain
+    " Enter which no downstream layer can recover. They do send ESC CR for
+    " Alt-Enter, which tmux re-encodes as a modified key, so both keys run
+    " the current cell.
+    for key in ['<S-CR>', '<M-CR>']
+      if empty(maparg(key, 'n'))
+        execute 'nmap <buffer> <silent> ' . key . ' <Plug>(EuporieRunCell)'
+      endif
+      if empty(maparg(key, 'i'))
+        execute 'imap <buffer> <silent> ' . key . ' <Plug>(EuporieRunCell)'
+      endif
+      if empty(maparg(key, 'x'))
+        execute 'xmap <buffer> <silent> ' . key . ' <Plug>(EuporieSendVisual)'
+      endif
+    endfor
     call s:map_legacy_shift_enter()
     if !hasmapto('<Plug>(EuporieRunCell)', 'n')
       nmap <buffer> <localleader>er <Plug>(EuporieRunCell)

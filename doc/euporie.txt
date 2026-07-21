@@ -29,7 +29,8 @@ PLUG MAPPINGS                                           *euporie-mappings*
 
 vim-euporie defines these buffer-local mappings by default:
 >
-  <S-CR>                 Run cell and advance (send Visual selection)
+  <M-CR>                 Run cell and advance (send Visual selection)
+  <S-CR>                 Same, when the outer terminal can report it
   nmap <localleader>er <Plug>(EuporieRunCell)
   nmap <localleader>ec <Plug>(EuporieSendCell)
   nmap <localleader>el <Plug>(EuporieSendLine)
@@ -38,8 +39,11 @@ vim-euporie defines these buffer-local mappings by default:
   nmap <localleader>ef <Plug>(EuporieFocus)
 <
 The <Plug> mappings are installed for Python buffers.
-Shift-Enter runs the current cell and advances in Normal and Insert mode. In
-Visual mode it sends the selection. Existing Shift-Enter mappings are kept.
+Alt-Enter and Shift-Enter run the current cell and advance in Normal and
+Insert mode. In Visual mode they send the selection. Existing mappings are
+kept. Shift-Enter requires an outer terminal that reports it distinctly
+(kitty, Ghostty, WezTerm, foot, xterm). VTE-based terminals such as XFCE
+Terminal send Shift-Enter as a plain Enter, so use Alt-Enter there.
 
 CONFIGURATION                                           *euporie-config*
 

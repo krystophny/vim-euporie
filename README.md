@@ -115,7 +115,8 @@ The default Python-buffer mappings use `maplocalleader` (a backslash unless you 
 
 | Mapping | Action |
 |---|---|
-| `Shift+Enter` | Run the current cell and advance (or run the Visual selection) |
+| `Alt+Enter` | Run the current cell and advance (or run the Visual selection) |
+| `Shift+Enter` | Same, on terminals whose keyboard protocol can report it |
 | `\er` | Run current cell and advance |
 | `\ec` | Run current cell without moving |
 | `\el` | Run current line |
@@ -140,12 +141,22 @@ let g:vim_euporie_idle_timeout = 0
 let g:vim_euporie_configure_keyboard = 1
 ```
 
-Shift+Enter works in Normal and Insert mode, and sends the selected text in
-Visual mode. Inside tmux, the plugin enables `extended-keys` and Vim's
-modifyOtherKeys level 2 so Shift+Enter remains distinct from Enter. Set
-`g:vim_euporie_configure_keyboard = 0` to manage that protocol yourself. A
-terminal-key fallback covers the CSI-u encoding emitted by Debian Bookworm's
-tmux 3.3a for Vim 9.0.
+Alt+Enter and Shift+Enter work in Normal and Insert mode, and send the
+selected text in Visual mode. Inside tmux, the plugin enables `extended-keys`
+and Vim's modifyOtherKeys level 2 so modified Enter keys remain distinct from
+Enter between tmux and Vim. Set `g:vim_euporie_configure_keyboard = 0` to
+manage that protocol yourself. A terminal-key fallback covers the CSI-u
+encoding emitted by Debian Bookworm's tmux 3.3a for Vim 9.0.
+
+Whether Shift+Enter reaches tmux at all depends on the outermost terminal.
+VTE-based terminals such as XFCE Terminal implement neither xterm's
+modifyOtherKeys nor the kitty keyboard protocol
+([vte#2601](https://gitlab.gnome.org/GNOME/vte/-/issues/2601)), so they send
+Shift+Enter as a plain Enter that no tmux or Vim setting can recover. On the
+primary XFCE Terminal path, use Alt+Enter, which VTE reports distinctly and
+which behaves identically. Shift+Enter additionally works under outer
+terminals with a modern keyboard protocol, such as kitty, Ghostty, WezTerm,
+foot, and xterm.
 
 Set `g:vim_euporie_split = 'vertical'` for a pane below Vim. To keep only `<Plug>` mappings and define your own:
 
