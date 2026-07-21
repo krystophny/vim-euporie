@@ -20,6 +20,8 @@ from typing import Any
 
 LOG = logging.getLogger("vim-euporie")
 MAX_REQUEST_BYTES = 16 * 1024 * 1024
+# Euporie indents cell output past its "In [n]:" prompt.
+PROMPT_GUTTER_COLUMNS = 8
 
 
 def prepare_code(code: str, kind: str) -> str:
@@ -30,6 +32,67 @@ def prepare_code(code: str, kind: str) -> str:
             f"_VimEuporieDisplay(_VimEuporieMarkdown({code!r}))"
         )
     return code
+
+
+def pane_pixel_width() -> int:
+    """Return the width available for output in this pane, in pixels."""
+    pane = os.environ.get("TMUX_PANE", "")
+    if not pane or not os.environ.get("TMUX"):
+        return 0
+    try:
+        result = subprocess.run(
+            [
+                "tmux",
+                "display-message",
+                "-p",
+                "-t",
+                pane,
+                "#{pane_width} #{client_cell_width}",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        LOG.exception("could not measure the Euporie pane")
+        return 0
+    parts = result.stdout.split()
+    if len(parts) != 2 or not all(part.isdigit() for part in parts):
+        return 0
+    columns, cell_width = (int(part) for part in parts)
+    columns -= PROMPT_GUTTER_COLUMNS
+    if columns <= 0 or cell_width <= 0:
+        return 0
+    return columns * cell_width
+
+
+def matplotlib_setup_code(target_width_px: int) -> str:
+    """Return kernel code enabling inline figures at the pane's width.
+
+    Euporie draws an image at its natural size: it occupies
+    ``image_width_px // cell_width_px`` columns and is never scaled up. A
+    Matplotlib figure is 6.4in wide at 100dpi, so on a HiDPI terminal, where a
+    cell can be 20px wide, the default figure covers barely a third of the
+    pane. Raise the figure DPI instead of its size in inches, which scales the
+    text along with the axes rather than shrinking it.
+    """
+    lines = [
+        "try:",
+        "    get_ipython().run_line_magic('matplotlib', 'inline')",
+    ]
+    if target_width_px > 0:
+        lines += [
+            "    import matplotlib as _ve_mpl",
+            "    _ve_inches = _ve_mpl.rcParams['figure.figsize'][0]",
+            f"    _ve_dpi = {target_width_px} / _ve_inches",
+            "    _ve_mpl.rcParams['figure.dpi'] = min(400.0, max(50.0, _ve_dpi))",
+            "    del _ve_mpl, _ve_inches, _ve_dpi",
+        ]
+    lines += [
+        "except (ImportError, ModuleNotFoundError):",
+        "    pass",
+    ]
+    return "\n".join(lines)
 
 
 class Runtime:
@@ -227,10 +290,7 @@ def start_kernel(runtime: Runtime, connection_file: Path) -> None:
     # Match notebook behavior for `plt.show()` when matplotlib is part of the
     # uv project. A missing matplotlib is deliberately ignored.
     client.execute(
-        "try:\n"
-        "    get_ipython().run_line_magic('matplotlib', 'inline')\n"
-        "except (ImportError, ModuleNotFoundError):\n"
-        "    pass",
+        matplotlib_setup_code(pane_pixel_width()),
         silent=True,
         store_history=False,
     )

@@ -99,6 +99,53 @@ class SixelConverterTests(unittest.TestCase):
         self.assertEqual({"sixel": {"png": []}}, registry)
 
 
+class FigureWidthTests(unittest.TestCase):
+    """Inline figures are rendered wide enough to fill the Euporie pane."""
+
+    def _tmux(self, stdout):
+        return SimpleNamespace(stdout=stdout, stderr="", returncode=0)
+
+    def test_width_excludes_the_prompt_gutter(self):
+        env = {"TMUX": "/tmp/tmux-1000/default", "TMUX_PANE": "%3"}
+        with patch.dict(SIDECAR.os.environ, env):
+            with patch.object(
+                SIDECAR.subprocess, "run", return_value=self._tmux("75 20\n")
+            ):
+                # 75 columns less the 8 column prompt gutter, at 20px per cell.
+                self.assertEqual((75 - 8) * 20, SIDECAR.pane_pixel_width())
+
+    def test_unusable_measurements_are_reported_as_zero(self):
+        env = {"TMUX": "/tmp/tmux-1000/default", "TMUX_PANE": "%3"}
+        with patch.dict(SIDECAR.os.environ, env):
+            for reply in ("", "75\n", "4 20\n", "75 0\n", "wide narrow\n"):
+                with patch.object(
+                    SIDECAR.subprocess, "run", return_value=self._tmux(reply)
+                ):
+                    self.assertEqual(0, SIDECAR.pane_pixel_width(), reply)
+
+    def test_outside_tmux_nothing_is_measured(self):
+        with patch.dict(SIDECAR.os.environ, {}, clear=True):
+            self.assertEqual(0, SIDECAR.pane_pixel_width())
+
+    def test_dpi_is_raised_rather_than_the_figure_size(self):
+        code = SIDECAR.matplotlib_setup_code(1340)
+        self.assertIn("run_line_magic('matplotlib', 'inline')", code)
+        # Scaling DPI keeps the text proportional; figsize would shrink it.
+        self.assertIn("1340 / _ve_inches", code)
+        self.assertIn("figure.dpi", code)
+        self.assertNotIn("figure.figsize'] =", code)
+        compile(code, "<matplotlib-setup>", "exec")
+
+    def test_without_a_measurement_only_the_backend_is_selected(self):
+        code = SIDECAR.matplotlib_setup_code(0)
+        self.assertIn("run_line_magic('matplotlib', 'inline')", code)
+        self.assertNotIn("figure.dpi", code)
+        compile(code, "<matplotlib-setup>", "exec")
+
+    def test_dpi_stays_within_sane_bounds(self):
+        self.assertIn("min(400.0, max(50.0,", SIDECAR.matplotlib_setup_code(999999))
+
+
 class CellSizeTests(unittest.TestCase):
     """Figures are sized from the cell size tmux reports for its client."""
 
