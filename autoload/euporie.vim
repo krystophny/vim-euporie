@@ -236,7 +236,7 @@ function! s:uv_command(ctx) abort
         \ '--owner-client', a:ctx.client,
         \ '--owner-pid', string(getpid()),
         \ '--idle-timeout', string(s:setting('idle_timeout', 0)),
-        \ '--graphics', s:setting('graphics', 'kitty-unicode'),
+        \ '--graphics', s:setting('graphics', 'sixel'),
         \ '--euporie-args-json', json_encode(s:setting('euporie_args', [])),
         \ ])
   return command
@@ -248,7 +248,7 @@ endfunction
 
 function! euporie#start() abort
   if empty($TMUX)
-    echoerr 'vim-euporie: start Vim inside tmux (Ghostty may be the outer terminal)'
+    echoerr 'vim-euporie: start Vim inside tmux'
     return 0
   endif
   if !executable('tmux') || !executable(s:setting('uv_command', 'uv'))

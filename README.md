@@ -2,7 +2,7 @@
 
 Notebook-style Python in classic Vim, with a rich [Euporie](https://github.com/joouha/euporie) console managed automatically in a neighboring tmux pane.
 
-The primary path is **Vim 9 → tmux → Ghostty**. Edit ordinary `.py` files, divide them into VS Code-style `# %%` cells, and send a cell without leaving Vim. The sidecar uses the current [`uv`](https://docs.astral.sh/uv/) project, while Euporie shows text, tracebacks, Matplotlib figures, LaTeX, and supported Jupyter widgets inline.
+The primary path is **Vim 9 → tmux → XFCE Terminal with Sixel**. Edit ordinary `.py` files, divide them into VS Code-style `# %%` cells, and send a cell without leaving Vim. The sidecar uses the current [`uv`](https://docs.astral.sh/uv/) project, while Euporie shows text, tracebacks, Matplotlib figures, LaTeX, and supported Jupyter widgets inline.
 
 ```python
 # %%
@@ -35,14 +35,16 @@ Vim talks to the sidecar through its built-in channel API. It does **not** need 
 ## Requirements
 
 - Vim 9.0 or newer with `+channel`, `+job`, and JSON support
-- tmux 3.3a or newer
+- tmux 3.4 or newer, built with Sixel support
 - `uv`
-- Ghostty, Kitty, or another terminal supporting Kitty graphics
+- a Sixel-capable terminal, such as XFCE Terminal built against a Sixel-enabled VTE
 - Python 3.10 or newer for current Euporie releases
 
-Debian 12 (Bookworm) supplies Vim 9.0, tmux 3.3a, and Python 3.11. Install `uv` separately, then let the plugin resolve Euporie and ipykernel on first use. No permanent Python tool installation is required.
+Install `uv` separately, then let the plugin resolve Euporie and ipykernel on first use. No permanent Python tool installation is required. Stable VTE releases currently omit Sixel support, so XFCE Terminal needs a Sixel-enabled VTE build. tmux 3.4 and newer can manage Sixel images as pane content, including scrolling, clipping, and redraws.
 
-For reliable Kitty graphics through tmux, add this to `~/.tmux.conf`:
+The default Sixel path deliberately disables Euporie's multiplexer passthrough. Euporie sends Sixel to tmux, and tmux parses and redraws it before XFCE Terminal renders it. This avoids the inactive-pane passthrough and repaint problems of terminal-specific graphics protocols.
+
+Kitty graphics remain available as a compatibility mode. For that mode, add this to `~/.tmux.conf`:
 
 ```tmux
 set -g allow-passthrough on
@@ -54,7 +56,7 @@ image upload and virtual-placement commands to the attached tmux client's TTY;
 the Unicode placeholder cells still pass through tmux, so images scroll and
 redraw with the surrounding output while Vim keeps focus.
 
-The plugin also enables that option in the running tmux server by default.
+The plugin also enables that option in the running tmux server by default. It is harmless in Sixel mode.
 
 Ghostty 1.3.1 has upstream Kitty Unicode-placement bugs inside tmux. Use a
 post-1.3.1 build containing the graphics cache and cell-geometry fixes (or the
@@ -127,11 +129,11 @@ The Euporie pane is a real interactive console: focus it with `\ef`, type explor
 
 ## Configuration
 
-Defaults are deliberately tuned for Ghostty inside tmux:
+Defaults are tuned for native Sixel inside tmux:
 
 ```vim
 let g:vim_euporie_auto_start = 1
-let g:vim_euporie_graphics = 'kitty-unicode'
+let g:vim_euporie_graphics = 'sixel'
 let g:vim_euporie_split = 'horizontal'
 let g:vim_euporie_pane_percent = 40
 let g:vim_euporie_idle_timeout = 0

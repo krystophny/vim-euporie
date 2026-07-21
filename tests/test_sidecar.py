@@ -88,6 +88,17 @@ class ConsoleLaunchTests(unittest.TestCase):
         self.assertIn("--multiplexer-passthrough", command)
         self.assertEqual("24", command[command.index("--color-depth") + 1])
 
+    def test_sixel_is_managed_by_tmux_instead_of_passed_through(self):
+        runtime = SimpleNamespace(
+            args=SimpleNamespace(
+                graphics="sixel",
+                euporie_args_json="[]",
+            )
+        )
+        command = SIDECAR.euporie_command(runtime, Path("kernel.json"))
+        self.assertIn("--no-multiplexer-passthrough", command)
+        self.assertNotIn("--multiplexer-passthrough", command)
+
     def test_kitty_commands_are_written_directly(self):
         written = []
         redraws = []

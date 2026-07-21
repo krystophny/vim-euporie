@@ -6,9 +6,10 @@ vim-euporie opens and manages an Euporie console in a tmux pane. Code is
 edited in Vim and executed in a project-local Jupyter kernel. Rich output is
 rendered by Euporie using the outer terminal's graphics protocol.
 
-The default target is Vim 9 inside tmux inside Ghostty. Vim does not need to
-be compiled with Python support. The external Python environment is resolved
-by uv.
+The default target is Vim 9 inside tmux 3.4 or newer inside a Sixel-capable
+terminal. Vim does not need to be compiled with Python support. The external
+Python environment is resolved by uv. tmux manages Sixel output natively so
+figures scroll, crop, and redraw with the pane.
 
 COMMANDS                                                *euporie-commands*
 
@@ -45,8 +46,9 @@ CONFIGURATION                                           *euporie-config*
 g:vim_euporie_auto_start        Default: 1
 g:vim_euporie_pane_percent      Default: 40
 g:vim_euporie_split             "horizontal" or "vertical"
-g:vim_euporie_graphics          Default: "kitty-unicode"
-g:vim_euporie_configure_tmux    Enable allow-passthrough; default: 1
+g:vim_euporie_graphics          Default: "sixel"
+g:vim_euporie_configure_tmux    Enable allow-passthrough for non-Sixel
+                                graphics modes; default: 1
 g:vim_euporie_configure_keyboard Enable tmux/Vim modified keys; default: 1
 g:vim_euporie_idle_timeout      Seconds after final Vim detaches; default: 0
 g:vim_euporie_start_timeout     First-start timeout; default: 90

@@ -247,12 +247,22 @@ def euporie_command(runtime: Runtime, connection_file: Path) -> list[str]:
         "--graphics",
         runtime.args.graphics,
         "--force-graphics",
-        "--multiplexer-passthrough",
-        "--color-scheme",
-        "dark",
-        "--color-depth",
-        "24",
     ]
+    # tmux 3.4+ parses, stores, crops, and redraws Sixel itself. Wrapping Sixel
+    # in passthrough would prevent tmux from managing the image as pane output.
+    command.append(
+        "--no-multiplexer-passthrough"
+        if runtime.args.graphics == "sixel"
+        else "--multiplexer-passthrough"
+    )
+    command.extend(
+        [
+            "--color-scheme",
+            "dark",
+            "--color-depth",
+            "24",
+        ]
+    )
     command.extend(json.loads(runtime.args.euporie_args_json))
     return command
 
@@ -308,7 +318,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--idle-timeout", type=float, default=0.0)
     parser.add_argument("--client-timeout", type=float, default=45.0)
     parser.add_argument("--kernel-timeout", type=float, default=60.0)
-    parser.add_argument("--graphics", default="kitty-unicode")
+    parser.add_argument("--graphics", default="sixel")
     parser.add_argument("--euporie-args-json", default="[]")
     return parser.parse_args(argv)
 
