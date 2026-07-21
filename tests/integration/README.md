@@ -49,3 +49,35 @@ figure counts any erase anywhere in a synchronized window, including status
 line repaints that have nothing to do with the figure. It is too loose to
 judge a fix by, and needs narrowing to the image's own rows before it can
 support a conclusion.
+
+## `stack.py`, `visual_flicker.py`, `drag_flicker.py`
+
+`stack.py` brings up the whole thing — patched VTE on Xvfb, tmux, Vim, this
+plugin, a real kernel — and is imported by the other two. The flicker scripts
+record the X display with ffmpeg and count frames where the figure's area goes
+empty, which is what a person actually perceives as flicker.
+
+```
+python3 tests/integration/visual_flicker.py tests/integration/cells.py
+python3 tests/integration/drag_flicker.py  tests/integration/cells_slider.py
+```
+
+Three things learned the hard way, all of which produce a confident-looking
+but meaningless number if you forget them:
+
+1. **A bare `Vte.Terminal` has Sixel disabled.** `set_enable_sixel(True)` is
+   required; Xfce Terminal does this itself. Without it the harness renders no
+   graphics and the stack looks broken when it is fine.
+2. **Updating an `Output` widget from a later cell does not re-render it.**
+   The output area goes blank and stays blank, so cell-driven redraws cannot
+   measure flicker. Only mouse interaction with a live widget updates it,
+   which is why `drag_flicker.py` exists.
+3. **Locate the figure by colour, not brightness.** Console text is grey on
+   black and swamps a brightness threshold; the plot is saturated.
+
+`drag_flicker.py` prints "distinct ink levels" as a self-check: if the figure
+never changed during the drag, the run tells you nothing about flicker no
+matter what the blank-frame count says. Treat a value of 2 or less as a failed
+measurement, not as a pass. It currently reports exactly that, because the
+slider row is guessed from the figure's top edge rather than located; finding
+the slider properly is the next step before this script can support any claim.
