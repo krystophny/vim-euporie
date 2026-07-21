@@ -35,7 +35,7 @@ Vim talks to the sidecar through its built-in channel API. It does **not** need 
 ## Requirements
 
 - Vim 9.0 or newer with `+channel`, `+job`, and JSON support
-- tmux 3.4 or newer, built with Sixel support
+- tmux 3.4 or newer, **built with `--enable-sixel`** (see below)
 - `uv`
 - a Sixel-capable terminal, such as XFCE Terminal built against a Sixel-enabled VTE
 - Python 3.10 or newer for current Euporie releases
@@ -43,6 +43,24 @@ Vim talks to the sidecar through its built-in channel API. It does **not** need 
 Install `uv` separately, then let the plugin resolve Euporie and ipykernel on first use. No permanent Python tool installation is required. Stable VTE releases currently omit Sixel support, so XFCE Terminal needs a Sixel-enabled VTE build. tmux 3.4 and newer can manage Sixel images as pane content, including scrolling, clipping, and redraws.
 
 The default Sixel path deliberately disables Euporie's multiplexer passthrough. Euporie sends Sixel to tmux, and tmux parses and redraws it before XFCE Terminal renders it. This avoids the inactive-pane passthrough and repaint problems of terminal-specific graphics protocols.
+
+### tmux must be built with Sixel support
+
+Sixel in tmux is a compile-time option, not a runtime one. A tmux built
+without `--enable-sixel` still reports `sixel` in `#{client_termfeatures}`,
+because that string only mirrors the outer terminal's DA1 response and is
+never checked against tmux's own build. Such a tmux then discards every image
+it receives, so everything else works and figures simply never appear. This is
+the usual cause of "no plots" on macOS, where Homebrew's tmux is built without
+the flag.
+
+`g:vim_euporie_graphics = 'auto'` (the default) probes the running tmux for
+this directly: it renders a 27-byte Sixel into a throwaway tmux server and
+checks whether the cursor advanced. A build that really parses Sixel consumes
+cell rows; one that does not leaves the cursor on the first line. When the
+probe fails, vim-euporie warns and falls back to `kitty-unicode` instead of
+silently rendering nothing. To keep the native path, build tmux with
+`--enable-sixel`.
 
 Kitty graphics remain available as a compatibility mode. For that mode, add this to `~/.tmux.conf`:
 
@@ -134,7 +152,7 @@ Defaults are tuned for native Sixel inside tmux:
 
 ```vim
 let g:vim_euporie_auto_start = 1
-let g:vim_euporie_graphics = 'sixel'
+let g:vim_euporie_graphics = 'auto'
 let g:vim_euporie_split = 'horizontal'
 let g:vim_euporie_pane_percent = 40
 let g:vim_euporie_idle_timeout = 0

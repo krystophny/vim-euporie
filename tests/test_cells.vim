@@ -36,6 +36,18 @@ call assert_true(euporie#has_inline_metadata())
 call assert_equal('<Plug>(EuporieRunCell)', maparg('<S-CR>', 'n'))
 call assert_equal('<Plug>(EuporieRunCell)', maparg('<S-CR>', 'i'))
 call assert_equal('<Plug>(EuporieSendVisual)', maparg('<S-CR>', 'x'))
+
+" VTE terminals report Shift-Enter as a plain Enter, so Alt-Enter has to run
+" cells too.
+call assert_equal('<Plug>(EuporieRunCell)', maparg('<M-CR>', 'n'))
+call assert_equal('<Plug>(EuporieRunCell)', maparg('<M-CR>', 'i'))
+call assert_equal('<Plug>(EuporieSendVisual)', maparg('<M-CR>', 'x'))
+
+" The graphics mode must resolve to a concrete protocol Euporie understands,
+" never the "auto" placeholder.
+let s:mode = euporie#graphics_mode()
+call assert_true(index(['sixel', 'kitty-unicode', 'kitty'], s:mode) >= 0,
+      \ 'unexpected graphics mode: ' . s:mode)
 call assert_match('EuporieRunCell', maparg('<Plug>(EuporieRunCell)', 'i'))
 if v:version < 901
   call assert_equal('<Plug>(EuporieRunCell)', maparg('<t_E1>', 'n'))

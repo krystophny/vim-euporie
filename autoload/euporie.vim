@@ -22,6 +22,70 @@ function! s:tmux(args) abort
         \ {_, value -> shellescape(value)}), ' '))
 endfunction
 
+function! s:warn(message) abort
+  echohl WarningMsg
+  echomsg 'vim-euporie: ' . a:message
+  echohl None
+endfunction
+
+function! s:tmux_sixel_capable() abort
+  if exists('s:sixel_capable')
+    return s:sixel_capable
+  endif
+  " Assume the native path when the probe cannot run, so an unexpected tmux
+  " failure never downgrades a working setup.
+  let s:sixel_capable = 1
+  if !executable('tmux')
+    return s:sixel_capable
+  endif
+
+  " tmux copies the terminal's DA1 sixel flag into #{client_termfeatures}
+  " without checking its own build, so that string claims sixel even on a tmux
+  " compiled without --enable-sixel, which then discards every image and shows
+  " nothing. Probe the parser instead: a build that really understands sixel
+  " consumes cell rows for the image, so the cursor leaves the first line.
+  let probe = tempname()
+  call writefile(["\<Esc>Pq#0;2;100;0;0#0~~~~~~~~\<Esc>\\"], probe, 'b')
+  let socket = 'vim-euporie-probe-' . getpid()
+  let server = ['-L', socket, '-f', '/dev/null']
+  call s:tmux(server + ['new-session', '-d', '-x', '80', '-y', '24',
+        \ 'cat ' . shellescape(probe) . '; sleep 5'])
+  " The pane needs a moment to run cat, so poll rather than read once.
+  let s:sixel_capable = 0
+  for _ in range(20)
+    let row = trim(s:tmux(server + ['display-message', '-p', '#{cursor_y}']))
+    if row =~# '^\d\+$' && str2nr(row) > 0
+      let s:sixel_capable = 1
+      break
+    endif
+    sleep 50m
+  endfor
+  call s:tmux(server + ['kill-server'])
+  call delete(probe)
+  return s:sixel_capable
+endfunction
+
+" Resolve "auto" to the protocol this tmux can actually render.
+function! euporie#graphics_mode() abort
+  let mode = s:setting('graphics', 'auto')
+  if mode !=# 'auto'
+    if mode ==# 'sixel' && !s:tmux_sixel_capable()
+      call s:warn('this tmux was built without --enable-sixel and silently '
+            \ . 'discards images, so figures will not appear. Rebuild tmux '
+            \ . 'with sixel support, or set g:vim_euporie_graphics to '
+            \ . '"kitty-unicode".')
+    endif
+    return mode
+  endif
+  if s:tmux_sixel_capable()
+    return 'sixel'
+  endif
+  call s:warn('this tmux was built without --enable-sixel; using kitty-unicode '
+        \ . 'graphics instead. Rebuild tmux with sixel support for the native '
+        \ . 'path.')
+  return 'kitty-unicode'
+endfunction
+
 function! s:tmux_scope() abort
   if empty($TMUX)
     return ''
@@ -236,7 +300,7 @@ function! s:uv_command(ctx) abort
         \ '--owner-client', a:ctx.client,
         \ '--owner-pid', string(getpid()),
         \ '--idle-timeout', string(s:setting('idle_timeout', 0)),
-        \ '--graphics', s:setting('graphics', 'sixel'),
+        \ '--graphics', euporie#graphics_mode(),
         \ '--euporie-args-json', json_encode(s:setting('euporie_args', [])),
         \ ])
   return command

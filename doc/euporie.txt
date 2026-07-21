@@ -50,7 +50,10 @@ CONFIGURATION                                           *euporie-config*
 g:vim_euporie_auto_start        Default: 1
 g:vim_euporie_pane_percent      Default: 40
 g:vim_euporie_split             "horizontal" or "vertical"
-g:vim_euporie_graphics          Default: "sixel"
+g:vim_euporie_graphics          "auto", "sixel", "kitty-unicode", or
+                                "kitty"; default: "auto". "auto" probes
+                                whether tmux itself can render Sixel and
+                                falls back to "kitty-unicode" if it cannot.
 g:vim_euporie_configure_tmux    Enable allow-passthrough for non-Sixel
                                 graphics modes; default: 1
 g:vim_euporie_configure_keyboard Enable tmux/Vim modified keys; default: 1
