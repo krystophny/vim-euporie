@@ -651,11 +651,24 @@ function! euporie#doctor() abort
   call Report(report, features =~# '\<extkeys\>',
         \ 'outer terminal advertises extkeys to tmux')
   if features !~# '\<extkeys\>'
-    call add(report, '       tmux will not forward modified keys. Either the')
-    call add(report, '       terminal cannot report them (VTE/XFCE Terminal never')
-    call add(report, '       can), or tmux did not detect it. For a terminal you')
-    call add(report, '       know supports them, add to ~/.tmux.conf:')
-    call add(report, "         set -as terminal-features 'xterm*:extkeys'")
+    " terminal-features is read once, when a client's terminal is created, so
+    " a client that attached before the option was set keeps the old set for
+    " its whole life. That looks exactly like a missing setting, but the cure
+    " is different, so tell the two apart instead of guessing.
+    let configured = s:tmux_option('terminal-features')
+    if configured =~# 'extkeys'
+      call add(report, '       tmux is configured for extkeys, but this client was')
+      call add(report, '       created before that took effect. terminal-features is')
+      call add(report, '       read once when a client attaches, so detach and')
+      call add(report, '       re-attach it (the session survives):')
+      call add(report, '         tmux detach   then   tmux attach')
+    else
+      call add(report, '       tmux will not forward modified keys, so Shift-Enter')
+      call add(report, '       arrives as a plain Enter. Add to ~/.tmux.conf:')
+      call add(report, "         set -as terminal-features ',xterm*:extkeys'")
+      call add(report, '       then reload it and re-attach:')
+      call add(report, '         tmux source-file ~/.tmux.conf')
+    endif
   endif
   if exists('+keyprotocol')
     " Vim selects the protocol by matching 'term' against 'keyprotocol'. Its
