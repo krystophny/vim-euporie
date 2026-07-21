@@ -22,6 +22,11 @@ LOG = logging.getLogger("vim-euporie")
 MAX_REQUEST_BYTES = 16 * 1024 * 1024
 # Euporie indents cell output past its "In [n]:" prompt.
 PROMPT_GUTTER_COLUMNS = 8
+# Inline figures are saved with a tight bounding box, which trims the margins
+# the requested size included, and Euporie scales an oversized image down to
+# the pane while never scaling a small one up. Aiming past the pane therefore
+# costs nothing and is what makes a figure reach the full width.
+FIGURE_OVERSHOOT = 1.25
 
 
 def prepare_code(code: str, kind: str) -> str:
@@ -81,10 +86,11 @@ def matplotlib_setup_code(target_width_px: int) -> str:
         "    get_ipython().run_line_magic('matplotlib', 'inline')",
     ]
     if target_width_px > 0:
+        target = int(target_width_px * FIGURE_OVERSHOOT)
         lines += [
             "    import matplotlib as _ve_mpl",
             "    _ve_inches = _ve_mpl.rcParams['figure.figsize'][0]",
-            f"    _ve_dpi = {target_width_px} / _ve_inches",
+            f"    _ve_dpi = {target} / _ve_inches",
             "    _ve_mpl.rcParams['figure.dpi'] = min(400.0, max(50.0, _ve_dpi))",
             "    del _ve_mpl, _ve_inches, _ve_dpi",
         ]

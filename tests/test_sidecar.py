@@ -131,10 +131,15 @@ class FigureWidthTests(unittest.TestCase):
         code = SIDECAR.matplotlib_setup_code(1340)
         self.assertIn("run_line_magic('matplotlib', 'inline')", code)
         # Scaling DPI keeps the text proportional; figsize would shrink it.
-        self.assertIn("1340 / _ve_inches", code)
         self.assertIn("figure.dpi", code)
         self.assertNotIn("figure.figsize'] =", code)
         compile(code, "<matplotlib-setup>", "exec")
+
+    def test_the_target_overshoots_the_pane(self):
+        # A tight bounding box trims the requested margins away, and Euporie
+        # scales an oversized image down, so aim past the pane to fill it.
+        code = SIDECAR.matplotlib_setup_code(1340)
+        self.assertIn(f"{int(1340 * SIDECAR.FIGURE_OVERSHOOT)} / _ve_inches", code)
 
     def test_without_a_measurement_only_the_backend_is_selected(self):
         code = SIDECAR.matplotlib_setup_code(0)
