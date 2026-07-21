@@ -99,6 +99,46 @@ class SixelConverterTests(unittest.TestCase):
         self.assertEqual({"sixel": {"png": []}}, registry)
 
 
+class CellSizeTests(unittest.TestCase):
+    """Figures are sized from the cell size tmux reports for its client."""
+
+    def _tmux(self, stdout):
+        return SimpleNamespace(stdout=stdout, stderr="", returncode=0)
+
+    def test_client_cell_size_is_parsed(self):
+        with patch.dict(CONSOLE.os.environ, {"TMUX": "/tmp/tmux-1000/default"}):
+            with patch.object(
+                CONSOLE.subprocess, "run", return_value=self._tmux("9 16\n")
+            ):
+                self.assertEqual((9, 16), CONSOLE.tmux_cell_size())
+
+    def test_outside_tmux_there_is_nothing_to_correct(self):
+        with patch.dict(CONSOLE.os.environ, {}, clear=True):
+            self.assertIsNone(CONSOLE.tmux_cell_size())
+
+    def test_unusable_reply_is_ignored(self):
+        with patch.dict(CONSOLE.os.environ, {"TMUX": "/tmp/tmux-1000/default"}):
+            for reply in ("", "0 0\n", "9\n", "wide tall\n"):
+                with patch.object(
+                    CONSOLE.subprocess, "run", return_value=self._tmux(reply)
+                ):
+                    self.assertIsNone(CONSOLE.tmux_cell_size(), reply)
+
+    def test_pixel_size_is_recomputed_from_the_client_cell(self):
+        io_module = SimpleNamespace(
+            _tiocgwinsz=lambda: (27, 90, 720, 432), Vt100_Output=type("O", (), {})
+        )
+        with patch.object(CONSOLE, "tmux_cell_size", return_value=(9, 16)):
+            with patch.dict(
+                "sys.modules",
+                {"euporie.core": SimpleNamespace(io=io_module),
+                 "euporie.core.io": io_module},
+            ):
+                CONSOLE.correct_cell_size()
+        # tmux reported an 8px wide cell; the client's real cell is 9px.
+        self.assertEqual((27, 90, 810, 432), io_module._tiocgwinsz())
+
+
 class LifecycleTests(unittest.TestCase):
     def test_new_owner_is_registered_before_control_socket_starts(self):
         runtime = SIDECAR.Runtime(

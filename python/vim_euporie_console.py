@@ -143,6 +143,74 @@ def drop_broken_sixel_converters() -> None:
         ]
 
 
+def tmux_cell_size() -> tuple[int, int] | None:
+    """Return the attached tmux client's true cell size in pixels."""
+    if not os.environ.get("TMUX"):
+        return None
+    try:
+        result = subprocess.run(
+            [
+                "tmux",
+                "display-message",
+                "-p",
+                "#{client_cell_width} #{client_cell_height}",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    parts = result.stdout.split()
+    if len(parts) != 2 or not all(part.isdigit() for part in parts):
+        return None
+    width, height = (int(part) for part in parts)
+    if width <= 0 or height <= 0:
+        return None
+    return width, height
+
+
+def correct_cell_size() -> None:
+    """Size figures from the cell size tmux reports for its client.
+
+    Euporie derives the cell size from TIOCGWINSZ and refines it with CSI 14 t.
+    Inside tmux both answer with tmux's own rounded geometry rather than the
+    attached terminal's: an 9x16 cell is reported as 8x16, so every figure is
+    rendered an eighth narrower than the space reserved for it. Where tmux
+    reports no pixel size at all, Euporie falls back to a hardcoded 10x20 guess
+    and figures come out smaller still, which is what a HiDPI screen usually
+    hits. tmux does know the real size and publishes it as
+    #{client_cell_width}, so prefer that.
+    """
+    cell = tmux_cell_size()
+    if cell is None:
+        return
+    cell_width, cell_height = cell
+
+    try:
+        from euporie.core import io as euporie_io
+    except ImportError:
+        return
+
+    original = euporie_io._tiocgwinsz
+
+    def corrected() -> tuple[int, int, int, int]:
+        rows, cols, _px, _py = original()
+        return rows, cols, cols * cell_width, rows * cell_height
+
+    euporie_io._tiocgwinsz = corrected
+
+    # tmux answers CSI 14 t with the same rounded geometry, and that reply
+    # overwrites the corrected size, so stop asking for it.
+    try:
+        from apptk.output.vt100 import Vt100_Output
+    except ModuleNotFoundError:
+        from euporie.core.io import Vt100_Output
+
+    if hasattr(Vt100_Output, "get_pixel_size"):
+        Vt100_Output.get_pixel_size = lambda _self: None
+
+
 def suppress_passthrough_queries() -> None:
     """Disable only startup queries which escape an inactive tmux pane.
 
@@ -175,6 +243,7 @@ def main() -> None:
         suppress_passthrough_queries()
         install_direct_kitty_uploads()
         drop_broken_sixel_converters()
+        correct_cell_size()
         euporie_main.main("console")
     else:
         # Euporie 3.x moved the output layer to apptk and no longer uses the
@@ -184,6 +253,7 @@ def main() -> None:
         suppress_passthrough_queries()
         install_direct_kitty_uploads()
         drop_broken_sixel_converters()
+        correct_cell_size()
         ConsoleApp.launch()
 
 
