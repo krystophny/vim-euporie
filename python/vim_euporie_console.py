@@ -4,6 +4,8 @@
 from __future__ import annotations
 
 import base64
+import errno
+import logging
 import os
 import shutil
 import subprocess
@@ -268,6 +270,38 @@ def keep_slider_grab() -> None:
     SliderControl.mouse_handler_ = mouse_handler_
 
 
+def quiet_shutdown_errors() -> None:
+    """Stop a torn-down pane from ending in a CRITICAL.
+
+    When tmux removes the pane the pty master goes with it, and prompt_toolkit
+    raises OSError EIO from its final flush. Euporie only catches EOFError and
+    KeyboardInterrupt around app.run(), so that reaches its excepthook, which
+    logs CRITICAL; the stdout log handler then fails writing to the same dead
+    terminal and prints "--- Logging error ---" on top. Nothing is actually
+    wrong, so drop the one exception that only means "the terminal already
+    went away".
+
+    setup_logs() assigns sys.excepthook from the module global, so replacing
+    the attribute here still takes effect when Euporie installs it later.
+    """
+    # A handler failing on a dead terminal should stay quiet too.
+    logging.raiseExceptions = False
+
+    try:
+        from euporie.core import log as euporie_log
+    except ImportError:
+        return
+
+    original = euporie_log.handle_exception
+
+    def handle_exception(exc_type, exc_value, exc_traceback):  # noqa: ANN001, ANN202
+        if issubclass(exc_type, OSError) and getattr(exc_value, "errno", None) == errno.EIO:
+            return None
+        return original(exc_type, exc_value, exc_traceback)
+
+    euporie_log.handle_exception = handle_exception
+
+
 def suppress_passthrough_queries() -> None:
     """Disable only startup queries which escape an inactive tmux pane.
 
@@ -302,6 +336,7 @@ def main() -> None:
         drop_broken_sixel_converters()
         correct_cell_size()
         keep_slider_grab()
+        quiet_shutdown_errors()
         if os.environ.get('VIM_EUPORIE_FULL_SCREEN'):
             force_full_screen()
         euporie_main.main("console")
@@ -315,6 +350,7 @@ def main() -> None:
         drop_broken_sixel_converters()
         correct_cell_size()
         keep_slider_grab()
+        quiet_shutdown_errors()
         if os.environ.get('VIM_EUPORIE_FULL_SCREEN'):
             force_full_screen()
         ConsoleApp.launch()

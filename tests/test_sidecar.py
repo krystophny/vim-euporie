@@ -191,6 +191,45 @@ class CellSizeTests(unittest.TestCase):
         self.assertEqual((27, 90, 810, 432), io_module._tiocgwinsz())
 
 
+class ShutdownLoggingTests(unittest.TestCase):
+    """A pane torn down under Euporie must not end in a CRITICAL."""
+
+    def _install(self):
+        calls = []
+
+        def original(exc_type, exc_value, exc_traceback):
+            calls.append(exc_type)
+
+        module = SimpleNamespace(handle_exception=original)
+        with patch.dict("sys.modules", {"euporie.core.log": module,
+                                        "euporie.core": SimpleNamespace(log=module)}):
+            CONSOLE.quiet_shutdown_errors()
+        return module, calls
+
+    def test_a_dead_terminal_is_ignored(self):
+        module, calls = self._install()
+        dead = OSError("Input/output error")
+        dead.errno = CONSOLE.errno.EIO
+        self.assertIsNone(module.handle_exception(OSError, dead, None))
+        self.assertEqual([], calls)
+
+    def test_other_errors_still_reach_euporie(self):
+        module, calls = self._install()
+        module.handle_exception(ValueError, ValueError("boom"), None)
+        self.assertEqual([ValueError], calls)
+
+        other = OSError("no space")
+        other.errno = CONSOLE.errno.ENOSPC
+        module.handle_exception(OSError, other, None)
+        self.assertEqual([ValueError, OSError], calls)
+
+    def test_handler_failures_are_not_reported(self):
+        self._install()
+        # A log handler writing to the dead terminal must not print its own
+        # "--- Logging error ---" on top.
+        self.assertFalse(CONSOLE.logging.raiseExceptions)
+
+
 class LifecycleTests(unittest.TestCase):
     def test_new_owner_is_registered_before_control_socket_starts(self):
         runtime = SIDECAR.Runtime(
