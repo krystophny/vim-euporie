@@ -211,6 +211,30 @@ def correct_cell_size() -> None:
         Vt100_Output.get_pixel_size = lambda _self: None
 
 
+def force_full_screen() -> None:
+    """Keep executed cells inside the live layout so widgets stay usable.
+
+    euporie-console builds its Application with ``full_screen=False``, so
+    prompt_toolkit prints each finished cell above the prompt and only the
+    prompt itself remains a live layout. An ipywidget scrolled up that way is
+    ordinary terminal text: it renders, but no mouse or key event can reach it,
+    which is why sliders look right and do nothing. The flag is a plain
+    ``setdefault`` in ``ConsoleApp.__init__``, so supplying it wins.
+    """
+    try:
+        from euporie.console.app import ConsoleApp
+    except ImportError:
+        return
+
+    original = ConsoleApp.__init__
+
+    def full_screen_init(self, **kwargs: object) -> None:
+        kwargs["full_screen"] = True
+        original(self, **kwargs)
+
+    ConsoleApp.__init__ = full_screen_init
+
+
 def suppress_passthrough_queries() -> None:
     """Disable only startup queries which escape an inactive tmux pane.
 
@@ -244,6 +268,8 @@ def main() -> None:
         install_direct_kitty_uploads()
         drop_broken_sixel_converters()
         correct_cell_size()
+        if os.environ.get('VIM_EUPORIE_FULL_SCREEN'):
+            force_full_screen()
         euporie_main.main("console")
     else:
         # Euporie 3.x moved the output layer to apptk and no longer uses the
@@ -254,6 +280,8 @@ def main() -> None:
         install_direct_kitty_uploads()
         drop_broken_sixel_converters()
         correct_cell_size()
+        if os.environ.get('VIM_EUPORIE_FULL_SCREEN'):
+            force_full_screen()
         ConsoleApp.launch()
 
 

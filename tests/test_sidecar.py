@@ -240,6 +240,7 @@ class ConsoleLaunchTests(unittest.TestCase):
             args=SimpleNamespace(
                 graphics="kitty-unicode",
                 euporie_args_json="[]",
+                full_screen=1,
             )
         )
         command = SIDECAR.euporie_command(runtime, Path("kernel.json"))
@@ -253,11 +254,34 @@ class ConsoleLaunchTests(unittest.TestCase):
             args=SimpleNamespace(
                 graphics="sixel",
                 euporie_args_json="[]",
+                full_screen=1,
             )
         )
         command = SIDECAR.euporie_command(runtime, Path("kernel.json"))
         self.assertIn("--no-multiplexer-passthrough", command)
         self.assertNotIn("--multiplexer-passthrough", command)
+
+    def test_full_screen_console_gets_mouse_support(self):
+        """Widgets are only reachable with a full-screen layout and a mouse."""
+        for full_screen, expected in ((1, True), (0, False)):
+            runtime = SimpleNamespace(
+                args=SimpleNamespace(
+                    graphics="sixel",
+                    euporie_args_json="[]",
+                    full_screen=full_screen,
+                )
+            )
+            command = SIDECAR.euporie_command(runtime, Path("kernel.json"))
+            self.assertEqual(expected, "--mouse-support" in command)
+
+    def test_the_console_is_told_to_use_a_full_screen_layout(self):
+        for full_screen, expected in ((1, "1"), (0, None)):
+            runtime = SimpleNamespace(
+                args=SimpleNamespace(graphics="sixel", full_screen=full_screen)
+            )
+            with patch.dict(SIDECAR.os.environ, {}, clear=True):
+                environment = SIDECAR.euporie_environment(runtime)
+            self.assertEqual(expected, environment.get("VIM_EUPORIE_FULL_SCREEN"))
 
     def test_kitty_commands_are_written_directly(self):
         written = []
@@ -282,7 +306,9 @@ class ConsoleLaunchTests(unittest.TestCase):
         self.assertEqual("wrapped:\x1b[31m", routed("\x1b[31m"))
 
     def test_only_kitty_unicode_mode_receives_direct_tty(self):
-        runtime = SimpleNamespace(args=SimpleNamespace(graphics="kitty-unicode"))
+        runtime = SimpleNamespace(
+            args=SimpleNamespace(graphics="kitty-unicode", full_screen=1)
+        )
         with patch.object(SIDECAR, "tmux_client_tty", return_value="/dev/pts/7"):
             environment = SIDECAR.euporie_environment(runtime)
         self.assertEqual("/dev/pts/7", environment["VIM_EUPORIE_KITTY_TTY"])

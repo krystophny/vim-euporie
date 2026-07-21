@@ -62,6 +62,9 @@ g:vim_euporie_graphics          "auto", "sixel", "kitty-unicode", or
 g:vim_euporie_configure_tmux    Enable allow-passthrough for non-Sixel
                                 graphics modes; default: 1
 g:vim_euporie_configure_keyboard Enable tmux/Vim modified keys; default: 1
+g:vim_euporie_full_screen       Keep executed cells in Euporie's live layout,
+                                which is what makes ipywidgets usable, and
+                                enable mouse support; default: 1
 g:vim_euporie_idle_timeout      Seconds after final Vim detaches; default: 0
 g:vim_euporie_start_timeout     First-start timeout; default: 90
 g:vim_euporie_with              uv overlay packages; default:

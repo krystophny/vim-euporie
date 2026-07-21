@@ -301,6 +301,7 @@ function! s:uv_command(ctx) abort
         \ '--owner-pid', string(getpid()),
         \ '--idle-timeout', string(s:setting('idle_timeout', 0)),
         \ '--graphics', euporie#graphics_mode(),
+        \ '--full-screen', string(s:setting('full_screen', 1)),
         \ '--euporie-args-json', json_encode(s:setting('euporie_args', [])),
         \ ])
   return command

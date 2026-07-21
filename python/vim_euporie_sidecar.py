@@ -321,6 +321,10 @@ def euporie_command(runtime: Runtime, connection_file: Path) -> list[str]:
         if runtime.args.graphics == "sixel"
         else "--multiplexer-passthrough"
     )
+    if runtime.args.full_screen:
+        # Widgets are only reachable in the full-screen layout, and only the
+        # mouse can drive them, since the console gives them no key bindings.
+        command.append("--mouse-support")
     command.extend(
         [
             "--color-scheme",
@@ -369,6 +373,9 @@ def euporie_environment(runtime: Runtime) -> dict[str, str]:
     """Build the console environment, including direct Kitty upload routing."""
     environment = os.environ.copy()
     environment.pop("VIM_EUPORIE_KITTY_TTY", None)
+    environment.pop("VIM_EUPORIE_FULL_SCREEN", None)
+    if runtime.args.full_screen:
+        environment["VIM_EUPORIE_FULL_SCREEN"] = "1"
     if runtime.args.graphics == "kitty-unicode":
         if tty := tmux_client_tty():
             environment["VIM_EUPORIE_KITTY_TTY"] = tty
@@ -385,6 +392,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--client-timeout", type=float, default=45.0)
     parser.add_argument("--kernel-timeout", type=float, default=60.0)
     parser.add_argument("--graphics", default="sixel")
+    parser.add_argument("--full-screen", type=int, default=1)
     parser.add_argument("--euporie-args-json", default="[]")
     return parser.parse_args(argv)
 

@@ -54,6 +54,21 @@ it receives, so everything else works and figures simply never appear. This is
 the usual cause of "no plots" on macOS, where Homebrew's tmux is built without
 the flag.
 
+### Interactive widgets
+
+`euporie-console` builds its prompt_toolkit `Application` with
+`full_screen=False`, so every finished cell is printed *above* the prompt and
+only the prompt itself stays a live layout. An ipywidget that has scrolled up
+that way is ordinary terminal text: it renders perfectly and no mouse or key
+event can ever reach it, which is why sliders appear but do nothing. The flag
+is a plain `setdefault` in `ConsoleApp.__init__`, so vim-euporie supplies it
+and keeps executed cells inside the live layout, where widgets work. Euporie
+gives widgets no key bindings, so `--mouse-support` is passed alongside it.
+
+Set `g:vim_euporie_full_screen = 0` to go back to the scrolling console. The
+trade-off is scrollback: a full-screen console uses the alternate screen, so
+past output is scrolled inside Euporie rather than in tmux's history.
+
 ### Figure size
 
 Euporie scales each figure to the width of the output area, computed from the
