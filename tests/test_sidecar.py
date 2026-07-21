@@ -31,6 +31,74 @@ class PrepareCodeTests(unittest.TestCase):
         self.assertIn("'# Title\\n$x^2$'", rendered)
 
 
+class SixelConverterTests(unittest.TestCase):
+    """A converter which exits zero without output must not be selected."""
+
+    def _run(self, stdout):
+        return SimpleNamespace(stdout=stdout, stderr=b"", returncode=0)
+
+    def test_converter_writing_nothing_is_rejected(self):
+        with patch.object(CONSOLE.shutil, "which", return_value="/usr/bin/img2sixel"):
+            with patch.object(CONSOLE.subprocess, "run", return_value=self._run(b"")):
+                self.assertFalse(CONSOLE.converter_emits_sixel("img2sixel"))
+
+    def test_converter_writing_a_sixel_is_accepted(self):
+        with patch.object(CONSOLE.shutil, "which", return_value="/usr/bin/img2sixel"):
+            with patch.object(
+                CONSOLE.subprocess, "run", return_value=self._run(b"\x1bPq#0;2;0;0;0")
+            ):
+                self.assertTrue(CONSOLE.converter_emits_sixel("img2sixel"))
+
+    def test_missing_converter_is_rejected(self):
+        with patch.object(CONSOLE.shutil, "which", return_value=None):
+            self.assertFalse(CONSOLE.converter_emits_sixel("img2sixel"))
+
+    def test_only_the_broken_converter_is_dropped(self):
+        def img2sixel_converter():
+            return None
+
+        img2sixel_converter.__name__ = "png_to_sixel_img2sixel"
+
+        def imagemagick_converter():
+            return None
+
+        imagemagick_converter.__name__ = "imagemagick_convert"
+
+        registry = {
+            "sixel": {
+                "png": [
+                    SimpleNamespace(func=img2sixel_converter),
+                    SimpleNamespace(func=imagemagick_converter),
+                ]
+            }
+        }
+        module = SimpleNamespace(converters=registry)
+        with patch.object(CONSOLE, "converter_emits_sixel", return_value=False):
+            with patch.dict(
+                "sys.modules",
+                {
+                    "euporie.core.convert": SimpleNamespace(formats=None),
+                    "euporie.core.convert.formats": SimpleNamespace(),
+                    "euporie.core.convert.registry": module,
+                },
+            ):
+                CONSOLE.drop_broken_sixel_converters()
+        self.assertEqual(
+            ["imagemagick_convert"],
+            [entry.func.__name__ for entry in registry["sixel"]["png"]],
+        )
+
+    def test_a_working_converter_is_left_alone(self):
+        registry = {"sixel": {"png": []}}
+        module = SimpleNamespace(converters=registry)
+        with patch.object(CONSOLE, "converter_emits_sixel", return_value=True):
+            with patch.dict(
+                "sys.modules", {"euporie.core.convert.registry": module}
+            ):
+                CONSOLE.drop_broken_sixel_converters()
+        self.assertEqual({"sixel": {"png": []}}, registry)
+
+
 class LifecycleTests(unittest.TestCase):
     def test_new_owner_is_registered_before_control_socket_starts(self):
         runtime = SIDECAR.Runtime(
