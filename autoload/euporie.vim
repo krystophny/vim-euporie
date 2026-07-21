@@ -659,7 +659,12 @@ function! euporie#doctor() abort
     " a client that attached before the option was set keeps the old set for
     " its whole life. That looks exactly like a missing setting, but the cure
     " is different, so tell the two apart instead of guessing.
-    let configured = s:tmux_option('terminal-features')
+    " terminal-features is an array option: tmux prints one
+    " "terminal-features[n] value" line per entry, so the whole output has to
+    " be searched. s:tmux_option returns only the first line and would report
+    " a configured feature as missing.
+    let configured = s:tmux(['show-options', '-g', 'terminal-features'])
+          \ . s:tmux(['show-options', '-s', 'terminal-features'])
     if configured =~# 'extkeys'
       call add(report, '       tmux is configured for extkeys, but this client was')
       call add(report, '       created before that took effect. terminal-features is')
