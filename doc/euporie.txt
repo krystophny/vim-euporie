@@ -18,6 +18,9 @@ COMMANDS                                                *euporie-commands*
 :EuporieRestart     Restart them.
 :EuporieFocus       Focus the managed tmux pane.
 :EuporieStatus      Show pane, kernel, and client status.
+:EuporieDoctor      Check each hop of the terminal, tmux, and Vim chain that
+                    Shift-Enter and graphics depend on, and report what is
+                    wrong. Run it from a Python buffer.
 :EuporieInterrupt   Interrupt the kernel.
 :EuporieSendCell    Execute the current # %% cell.
 :EuporieRunCell     Execute the cell and move to the next one.

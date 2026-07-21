@@ -159,6 +159,10 @@ The default Python-buffer mappings use `maplocalleader` (a backslash unless you 
 
 Commands include `:EuporieStart`, `:EuporieStop`, `:EuporieRestart`, `:EuporieFocus`, `:EuporieStatus`, `:EuporieInterrupt`, `:EuporieSendCell`, `:EuporieRunCell`, `:[range]EuporieSend`, and `:EuporieSendFile`.
 
+Shift+Enter and inline graphics each depend on a chain of terminal, tmux and
+Vim settings, and a break anywhere in it is silent. `:EuporieDoctor` checks
+every hop and names the one that is wrong.
+
 The Euporie pane is a real interactive console: focus it with `\ef`, type exploratory code directly, inspect and scroll output, use completions, or work with widgets. Input sent from Vim and input typed into Euporie share the same kernel. When the final attached Vim exits, the pane and kernel close automatically. Set a positive idle timeout if you want a grace period for reopening Vim.
 
 ## Configuration

@@ -591,6 +591,99 @@ function! euporie#status() abort
   endif
 endfunction
 
+function! s:tmux_option(name) abort
+  " extended-keys is a server option in tmux 3.2 and newer and a session
+  " option before that.
+  for scope in ['-s', '-g']
+    let value = trim(s:tmux(['show-options', scope, a:name]))
+    if !empty(value)
+      return matchstr(value, '^\S\+\s\+\zs.*$')
+    endif
+  endfor
+  return ''
+endfunction
+
+function! euporie#doctor() abort
+  call s:configure_keyboard()
+  let report = []
+  let problems = 0
+
+  function! Report(lines, ok, text) abort closure
+    call add(a:lines, printf('  [%s] %s', a:ok ? 'ok' : '!!', a:text))
+    if !a:ok
+      let problems += 1
+    endif
+  endfunction
+
+  call add(report, 'vim-euporie doctor')
+  call add(report, '')
+  call add(report, 'Editor')
+  call Report(report, has('channel') && has('job') && exists('*json_encode'),
+        \ printf('Vim %d.%d patch %d, +channel/+job/json',
+        \ v:version / 100, v:version % 100, get(v:, 'versionlong', 0) % 10000))
+
+  call add(report, 'Multiplexer')
+  call Report(report, !empty($TMUX), 'running inside tmux')
+  if empty($TMUX)
+    call add(report, '       start Vim from inside tmux; the pane is created there')
+    echo join(report, "\n")
+    return
+  endif
+  call Report(report, 1, trim(s:tmux(['-V'])))
+  let features = trim(s:tmux(['display-message', '-p', '#{client_termfeatures}']))
+  let termtype = trim(s:tmux(['display-message', '-p',
+        \ '#{client_termname} (#{client_termtype})']))
+  call add(report, '  ..  outer terminal: ' . termtype)
+  call add(report, '  ..  termfeatures:   ' . features)
+
+  call add(report, 'Shift-Enter')
+  let extended = s:tmux_option('extended-keys')
+  call Report(report, extended =~# 'on\|always',
+        \ 'tmux extended-keys = ' . (empty(extended) ? 'unsupported' : extended))
+  call Report(report, features =~# '\<extkeys\>',
+        \ 'outer terminal advertises extkeys to tmux')
+  if features !~# '\<extkeys\>'
+    call add(report, '       tmux will not forward modified keys. Either the')
+    call add(report, '       terminal cannot report them (VTE/XFCE Terminal never')
+    call add(report, '       can), or tmux did not detect it. For a terminal you')
+    call add(report, '       know supports them, add to ~/.tmux.conf:')
+    call add(report, "         set -as terminal-features 'xterm*:extkeys'")
+  endif
+  if exists('+keyprotocol')
+    " Vim selects the protocol by matching 'term' against 'keyprotocol'. Its
+    " own xterm:mok2 entry covers a tmux which sets TERM to xterm-256color;
+    " the plugin adds the tmux and screen entries for the usual case.
+    call Report(report, &keyprotocol =~# '\<' . matchstr(&term, '^\a\+') . ':',
+          \ printf("Vim 'keyprotocol' has an entry for term '%s'", &term))
+    call add(report, '  ..  keyprotocol:   ' . &keyprotocol)
+  else
+    call Report(report, 1, "Vim has no 'keyprotocol'; using t_E1/t_E2 fallback")
+  endif
+  call Report(report, !empty(maparg('<S-CR>', 'n')),
+        \ '<S-CR> mapped in this buffer (open a .py file if not)')
+
+  call add(report, 'Graphics')
+  call Report(report, s:tmux_sixel_capable(),
+        \ 'tmux was built with --enable-sixel')
+  if !s:tmux_sixel_capable()
+    call add(report, '       This tmux discards every image. On macOS, Homebrew')
+    call add(report, '       builds tmux without it; build from source with')
+    call add(report, '       --enable-sixel, or use a kitty-graphics terminal.')
+  endif
+  call Report(report, features =~# '\<sixel\>',
+        \ 'outer terminal reports Sixel support')
+  call add(report, '  ..  graphics mode:  ' . euporie#graphics_mode())
+
+  call add(report, 'Kernel')
+  call Report(report, executable(s:setting('uv_command', 'uv')), 'uv on PATH')
+
+  call add(report, '')
+  call add(report, problems ? printf('%d problem(s) found.', problems)
+        \ : 'No problems found.')
+  delfunction Report
+  echo join(report, "\n")
+endfunction
+
 function! euporie#detach_all() abort
   for ctx in values(s:contexts)
     " Always attempt the detach. A context can be registered by the sidecar's
