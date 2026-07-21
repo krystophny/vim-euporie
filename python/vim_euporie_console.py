@@ -235,6 +235,39 @@ def force_full_screen() -> None:
     ConsoleApp.__init__ = full_screen_init
 
 
+def keep_slider_grab() -> None:
+    """Let a slider keep the pointer once dragging, as a real widget would.
+
+    Euporie captures the pointer on mouse-down and clamps events back into the
+    slider, but SliderControl.mouse_handler_ only treats MOUSE_MOVE as a drag:
+    any other event while the button is held falls through to the branch that
+    clears `dragging` and releases the capture. Moving off the slider row then
+    stops the drag instead of continuing it, unlike every graphical toolkit.
+    Hold the grab until the button is actually released.
+    """
+    try:
+        from prompt_toolkit.mouse_events import MouseEventType
+        from euporie.core.widgets.forms import SliderControl
+    except ImportError:
+        return
+
+    original = SliderControl.mouse_handler_
+
+    def mouse_handler_(self, mouse_event, loc):  # noqa: ANN001, ANN202
+        if self.dragging and mouse_event.event_type is not MouseEventType.MOUSE_UP:
+            n_options = len(self.slider.options)
+            pos = loc - 2 if self.show_arrows() else loc
+            pos = max(0, min(self.track_len, pos))
+            index = int((n_options - 0.5) * pos / self.track_len)
+            if self.slider.vertical():
+                index = n_options - index
+            self.set_index(self.selected_handle, ab=index)
+            return None
+        return original(self, mouse_event, loc)
+
+    SliderControl.mouse_handler_ = mouse_handler_
+
+
 def suppress_passthrough_queries() -> None:
     """Disable only startup queries which escape an inactive tmux pane.
 
@@ -268,6 +301,7 @@ def main() -> None:
         install_direct_kitty_uploads()
         drop_broken_sixel_converters()
         correct_cell_size()
+        keep_slider_grab()
         if os.environ.get('VIM_EUPORIE_FULL_SCREEN'):
             force_full_screen()
         euporie_main.main("console")
@@ -280,6 +314,7 @@ def main() -> None:
         install_direct_kitty_uploads()
         drop_broken_sixel_converters()
         correct_cell_size()
+        keep_slider_grab()
         if os.environ.get('VIM_EUPORIE_FULL_SCREEN'):
             force_full_screen()
         ConsoleApp.launch()
