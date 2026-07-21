@@ -77,7 +77,30 @@ but meaningless number if you forget them:
 
 `drag_flicker.py` prints "distinct ink levels" as a self-check: if the figure
 never changed during the drag, the run tells you nothing about flicker no
-matter what the blank-frame count says. Treat a value of 2 or less as a failed
-measurement, not as a pass. It currently reports exactly that, because the
-slider row is guessed from the figure's top edge rather than located; finding
-the slider properly is the next step before this script can support any claim.
+matter what the blank-frame count says. A value of 2 or less is a failed
+measurement, not a pass, and the script exits non-zero to say so.
+
+## `image_persistence.py` — and what these three together establish
+
+```
+python3 tests/integration/image_persistence.py
+```
+
+Renders one figure and then touches nothing for 90 seconds. Result: the figure
+is **pixel-identical at every sample** (13039 coloured pixels, 18 samples). So
+at rest the whole graphics path is stable — the VTE Sixel patch does not retire
+the image, tmux does not lose it, and nothing decays or ghosts.
+
+Put beside the other two scripts, that narrows the remaining defect sharply:
+
+- idle, with no updates: figure is perfectly stable
+- updated by running a later cell: the output area goes blank **and stays
+  blank** — the figure never returns
+- updated by dragging the slider: same, the figure is absent for the whole
+  recording
+
+So the problem to chase is not tearing or a partially-painted frame. It is that
+**an `Output` widget's image is not re-rendered after it updates**. Anything
+that reads as "flicker" is most likely this: the picture disappearing on each
+update rather than being replaced. That is where the next work belongs, and it
+sits in Euporie's widget/output layer, not in VTE or tmux.
