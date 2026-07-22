@@ -5,6 +5,25 @@ actually works rather than that a unit test agrees with itself. They need an X
 server (`Xvfb`), `xdotool`, `tmux` and the patched VTE, so they are not part of
 `tests/run.sh`; run them by hand when the key or graphics path changes.
 
+## `vte_images.py`
+
+The fastest and most important probe: the sixel image lifecycle in the patched
+VTE under tmux, with no Euporie involved (about half a minute). It encodes the
+bug that made figures go black: VTE's ghost fix retired an image whenever text
+was inserted into any row it covers, ignoring the column, so a repaint of the
+neighbouring pane or the border column — which tmux does on every pane switch —
+killed the figure and the next full redraw showed black. The fix intersects on
+row *and* column. Run this after every VTE rebuild:
+
+```
+python3 tests/integration/vte_images.py
+```
+
+The graphics pipeline can also be traced end to end on a live run by setting
+`VIM_EUPORIE_GRAPHICS_LOG=/path/to/log` in the environment Euporie starts in;
+the sidecar then logs every stage from comm update to sixel emission, which is
+how the defect above was found.
+
 ## `vte_keys.py`
 
 Checks what the terminal itself sends. A real `VteTerminal` on a headless X
@@ -99,8 +118,23 @@ Put beside the other two scripts, that narrows the remaining defect sharply:
 - updated by dragging the slider: same, the figure is absent for the whole
   recording
 
-So the problem to chase is not tearing or a partially-painted frame. It is that
-**an `Output` widget's image is not re-rendered after it updates**. Anything
-that reads as "flicker" is most likely this: the picture disappearing on each
-update rather than being replaced. That is where the next work belongs, and it
-sits in Euporie's widget/output layer, not in VTE or tmux.
+All three causes are now understood and none of them was tearing:
+
+1. **Cell-driven updates go blank by design.** When the next console input is
+   submitted, Euporie flushes the live widget to scrollback
+   (`Console.new_input` → `flush_live_output`) and prints it once as static
+   text. A widget updated from a later cell is updating views that are no
+   longer in the layout. Only mouse interaction with the still-live widget
+   re-renders. This is Euporie console semantics, not a stack defect.
+2. **The black figures were the VTE row-drop bug** described under
+   `vte_images.py`: any tmux repaint of the same rows retired the image, so
+   every pane switch blanked the plot until the next widget update.
+3. **The residual per-update blink was a chunking race**: the erase of the
+   old image and the tens-of-kilobytes replacement sixel can cross tmux in
+   separate reads and reach the terminal as two frames. The sidecar's
+   `synchronize_frames` brackets every flushed Euporie frame in DEC 2026
+   markers so tmux forwards erase and image atomically.
+
+With both fixes in, `drag_flicker.py` records a full slider sweep (value 30
+to 360, 27 distinct figure states) with **zero blank frames** and the
+figure's pixel count never dipping below 99.6% of nominal across 360 frames.

@@ -46,26 +46,45 @@ def cell_size(st: harness.Stack) -> tuple[float, float]:
 
 
 def locate_slider(st: harness.Stack, pane: str) -> tuple[int, int, int] | None:
-    """Return (y, x_start, x_end) in screen pixels for the slider track."""
+    """Return (y, x_start, x_end) in screen pixels for the slider handle.
+
+    Columns come from capture-pane, which maps to screen columns exactly. The
+    row does NOT: capture-pane row indices are offset from screen rows by the
+    layout's leading spacer rows, and a press one row off lands on a
+    DummyControl spacer and is silently swallowed. Take the row from the
+    pixels instead: the slider is the first bright text band in the pane,
+    above the figure. The press must also land on the handle itself, because
+    Euporie sliders do not jump on a bare track click.
+    """
     rows = st.tmux("capture-pane", "-p", "-t", pane).splitlines()
-    row_index = next((i for i, line in enumerate(rows) if "Azimuth" in line), None)
-    if row_index is None:
-        return None
-    line = rows[row_index]
-
-    # The track is drawn to the right of the description with box characters.
+    line = next((row for row in rows if "Azimuth" in row), "")
     track = [i for i, char in enumerate(line) if char in "─━╌╍◈●○┿"]
-    if len(track) < 4:
+    handle = line.find("●")
+    if len(track) < 4 or handle < 0:
         return None
 
-    cell_w, cell_h = cell_size(st)
-    pane_top = int(st.tmux("display", "-p", "-t", pane, "#{pane_top}"))
+    cell_w, _cell_h = cell_size(st)
     pane_left = int(st.tmux("display", "-p", "-t", pane, "#{pane_left}"))
-    y = int((pane_top + row_index + 0.5) * cell_h)
-    x_start = int((pane_left + track[0] + 0.5) * cell_w)
+    pane_px = int(pane_left * cell_w)
+
+    shot = st.screenshot("slider-row-find")
+    grey = np.asarray(Image.open(shot).convert("L"), dtype=np.int16)
+    bright = np.where(grey[:150, pane_px + 40:].max(axis=1) > 60)[0]
+    if bright.size == 0:
+        return None
+    band_end = bright[0]
+    for row in bright:
+        if row > band_end + 2:
+            break
+        band_end = row
+    band = bright[bright <= band_end]
+    y = int((band.min() + band.max()) / 2)
+
+    x_start = int((pane_left + handle + 0.5) * cell_w)
     x_end = int((pane_left + track[-1] + 0.5) * cell_w)
-    print(f"  slider on pane row {row_index}, columns {track[0]}..{track[-1]}")
-    print(f"  cell {cell_w:.2f}x{cell_h:.2f}px -> screen y={y}, x {x_start}..{x_end}")
+    print(f"  handle col {handle}, track ends {track[-1]}, "
+          f"pixel band {band.min()}..{band.max()}")
+    print(f"  press at ({x_start},{y}), drag to x={x_end}")
     return y, x_start, x_end
 
 
@@ -91,6 +110,11 @@ def main() -> int:
         time.sleep(1.0)
         st.key("shift+Return")
         time.sleep(35.0)
+
+        # Focus the Euporie pane before the drag: the first press otherwise
+        # goes into tmux's pane-switching binding rather than the slider.
+        st.tmux("select-pane", "-t", pane)
+        time.sleep(1.0)
 
         cell_w, _ = cell_size(st)
         pane_px = int(int(st.tmux("display", "-p", "-t", pane, "#{pane_left}")) * cell_w)

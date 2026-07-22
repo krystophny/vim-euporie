@@ -359,5 +359,46 @@ class ConsoleLaunchTests(unittest.TestCase):
         self.assertNotIn("VIM_EUPORIE_KITTY_TTY", environment)
 
 
+class SynchronizedFrameTests(unittest.TestCase):
+    """Every flushed frame is bracketed in DEC 2026 markers.
+
+    Without this the erase of a widget's old image and its replacement sixel
+    can reach the outer terminal in separate updates, which shows as one
+    blank frame per slider tick.
+    """
+
+    def _flush(self, buffer):
+        flushed = []
+
+        class Output:
+            def __init__(self):
+                self._buffer = buffer
+
+            def flush(self):
+                flushed.extend(self._buffer)
+                self._buffer.clear()
+
+        fake_io = SimpleNamespace(Vt100_Output=Output)
+        with patch.dict(
+            "sys.modules",
+            {"apptk.output.vt100": None, "euporie.core.io": fake_io},
+        ):
+            CONSOLE.synchronize_frames()
+        Output()
+        output = Output.__new__(Output)
+        output._buffer = buffer
+        fake_io.Vt100_Output.flush(output)
+        return flushed
+
+    def test_a_frame_is_bracketed_in_sync_markers(self):
+        flushed = self._flush(["frame-content"])
+        self.assertEqual(flushed[0], "\x1b[?2026h")
+        self.assertEqual(flushed[-1], "\x1b[?2026l")
+        self.assertIn("frame-content", flushed)
+
+    def test_an_empty_flush_stays_empty(self):
+        self.assertEqual(self._flush([]), [])
+
+
 if __name__ == "__main__":
     unittest.main()

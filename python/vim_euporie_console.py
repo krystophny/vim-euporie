@@ -270,6 +270,34 @@ def keep_slider_grab() -> None:
     SliderControl.mouse_handler_ = mouse_handler_
 
 
+def synchronize_frames() -> None:
+    """Bracket every flushed frame in DEC 2026 synchronized-update markers.
+
+    Euporie erases a widget's old image and emits the new sixel in one frame,
+    but the sixel is tens of kilobytes and tmux reads the pane in chunks, so
+    the erase and the image can reach the outer terminal in separate updates:
+    one visibly blank frame per slider tick. With the frame bracketed, tmux
+    holds the pane's output until the closing marker and forwards erase and
+    image atomically. Measured on a real drag: 13 blank frames without this,
+    none with it.
+    """
+    try:
+        from apptk.output.vt100 import Vt100_Output
+    except ModuleNotFoundError:
+        from euporie.core.io import Vt100_Output
+
+    original_flush = Vt100_Output.flush
+
+    def flush(self) -> None:  # noqa: ANN001
+        buffer = getattr(self, "_buffer", None)
+        if buffer:
+            buffer.insert(0, "\x1b[?2026h")
+            buffer.append("\x1b[?2026l")
+        original_flush(self)
+
+    Vt100_Output.flush = flush
+
+
 def quiet_shutdown_errors() -> None:
     """Stop a torn-down pane from ending in a CRITICAL.
 
@@ -322,6 +350,182 @@ def suppress_passthrough_queries() -> None:
             setattr(Vt100_Output, method_name, ignore_query)
 
 
+def trace_graphics() -> None:
+    """Log the graphics pipeline and mouse dispatch for diagnosis.
+
+    Gated on VIM_EUPORIE_GRAPHICS_LOG, so ordinary runs are untouched. When
+    the variable names a file, every stage from comm update to sixel emission
+    is logged, along with incoming mouse bytes and which control each event
+    is delivered to. This is the tool that located the VTE image-retirement
+    bug and the spacer row swallowing slider clicks; keep it working.
+    """
+    log_path = os.environ.get("VIM_EUPORIE_GRAPHICS_LOG")
+    if not log_path:
+        return
+    import functools
+    import time as _time
+
+    handle = open(log_path, "a", buffering=1)
+
+    def note(msg: str) -> None:
+        handle.write(f"{_time.monotonic():.3f} {msg}\n")
+
+    def wrap(cls: object, name: str, fmt: Callable) -> None:
+        original = getattr(cls, name)
+
+        @functools.wraps(original)
+        def wrapped(*args: object, **kwargs: object) -> object:
+            try:
+                note(fmt(*args, **kwargs))
+            except Exception as exc:  # noqa: BLE001
+                note(f"{cls.__name__}.{name} fmt error: {exc}")
+            try:
+                result = original(*args, **kwargs)
+            except Exception as exc:
+                note(f"{cls.__name__}.{name} RAISED {type(exc).__name__}: {exc}")
+                raise
+            return result
+
+        setattr(cls, name, wrapped)
+
+    from euporie.core.comm.ipywidgets import OutputModel
+    from euporie.core.convert.datum import Datum
+    from euporie.core.graphics import (
+        GraphicProcessor,
+        GraphicWindow,
+        SixelGraphicControl,
+    )
+    from euporie.core.widgets.cell_outputs import CellOutput, CellOutputArea
+    from euporie.core.widgets.display import DisplayControl
+
+    wrap(OutputModel, "add_output",
+         lambda self, json, own: f"OutputModel.add_output wait={self.clear_output_wait} "
+         f"mimes={list(json.get('data', {}))}")
+    wrap(OutputModel, "clear_output",
+         lambda self, wait=False: f"OutputModel.clear_output wait={wait}")
+    wrap(CellOutputArea, "reset",
+         lambda self: f"CellOutputArea.reset id={id(self):#x}")
+    wrap(CellOutputArea, "add_output",
+         lambda self, output_json, refresh=True:
+         f"CellOutputArea.add_output id={id(self):#x} "
+         f"mimes={list(output_json.get('data', {}))}")
+    wrap(CellOutput, "make_element",
+         lambda self, mime: f"CellOutput.make_element mime={mime}")
+    wrap(DisplayControl, "get_lines",
+         lambda self, datum, width, height, fg, bg, wrap_lines=False:
+         f"DisplayControl.get_lines ctrl={id(self):#x} datum={id(datum):#x} "
+         f"fmt={datum.format} w={width} h={height}")
+    wrap(GraphicProcessor, "get_graphic_float",
+         lambda self, key: f"GraphicProcessor.get_graphic_float key={key} "
+         f"sized={Datum.get_size(key) is not None}")
+    wrap(SixelGraphicControl, "convert_data",
+         lambda self, wp: f"SixelGraphicControl.convert_data ctrl={id(self):#x} "
+         f"wp={wp.width}x{wp.height}")
+
+    original_load = GraphicProcessor._load_positions
+
+    def load_positions(self, content):  # noqa: ANN001, ANN202
+        positions = original_load(self, content)
+        if positions:
+            note(f"GraphicProcessor.positions proc={id(self):#x} "
+                 f"keys={list(positions)}")
+        return positions
+
+    GraphicProcessor._load_positions = load_positions
+
+    original_get_position = GraphicProcessor._get_position
+
+    def get_position(self, key, rows, cols):  # noqa: ANN001, ANN202
+        inner = original_get_position(self, key, rows, cols)
+
+        def logged(screen):  # noqa: ANN001, ANN202
+            from prompt_toolkit.application import get_app as ptk_get_app
+
+            if key not in self.positions:
+                note(f"pos key={key}: key not in positions "
+                     f"(have {list(self.positions)})")
+                return inner(screen)
+            window = None
+            for _w in ptk_get_app().layout.find_all_windows():
+                if _w.content == self.control:
+                    window = _w
+                    break
+            if window is None:
+                note(f"pos key={key}: control {id(self.control):#x} "
+                     "has no window in layout")
+            elif window not in screen.visible_windows:
+                note(f"pos key={key}: window exists but not in visible_windows")
+            return inner(screen)
+
+        return logged
+
+    GraphicProcessor._get_position = get_position
+
+    original_wts = GraphicWindow.write_to_screen
+
+    def write_to_screen(self, screen, mouse_handlers, write_position,  # noqa: ANN001
+                        parent_style, erase_bg, z_index):  # noqa: ANN001, ANN202
+        filter_value = self.filter()
+        position = "?"
+        if filter_value:
+            try:
+                wp = self.get_position(screen)
+                position = f"{wp.width}x{wp.height}@{wp.xpos},{wp.ypos}"
+            except Exception as exc:  # noqa: BLE001
+                position = f"NotVisible({exc.__class__.__name__})"
+        note(f"GraphicWindow.write ctrl={id(self.content):#x} "
+             f"filter={filter_value} pos={position}")
+        return original_wts(self, screen, mouse_handlers, write_position,
+                            parent_style, erase_bg, z_index)
+
+    GraphicWindow.write_to_screen = write_to_screen
+
+    from prompt_toolkit.input import vt100_parser
+
+    original_feed = vt100_parser.Vt100Parser.feed
+
+    def feed(self, data):  # noqa: ANN001, ANN202
+        if "\x1b[<" in data:
+            note(f"input: mouse bytes {data!r:.120}")
+        return original_feed(self, data)
+
+    vt100_parser.Vt100Parser.feed = feed
+
+    from prompt_toolkit.mouse_events import MouseEvent
+
+    original_me_init = MouseEvent.__init__
+
+    def me_init(self, position, event_type, button, modifiers):  # noqa: ANN001, ANN202
+        where = "?"
+        frame = sys._getframe(1)
+        for _ in range(4):
+            if frame is None:
+                break
+            owner = frame.f_locals.get("self")
+            if owner is not None and hasattr(owner, "content"):
+                where = f"window content={type(owner.content).__name__}"
+                break
+            if "__init__" not in frame.f_code.co_qualname:
+                where = frame.f_code.co_qualname
+                break
+            frame = frame.f_back
+        note(f"MouseEvent {event_type} at {position} <- {where}")
+        return original_me_init(self, position, event_type, button, modifiers)
+
+    MouseEvent.__init__ = me_init
+
+    try:
+        from euporie.core.widgets.forms import SliderControl
+    except ImportError:
+        SliderControl = None
+    if SliderControl is not None:
+        for name in ("mouse_handler_", "mouse_handler_handle",
+                     "mouse_handler_track", "mouse_handler_arrow"):
+            wrap(SliderControl, name,
+                 (lambda n: lambda self, *a, **k: f"Slider.{n} args={a}")(name))
+    note("trace_graphics installed")
+
+
 def main() -> None:
     sys.argv[0] = "euporie-console"
     from euporie.core import __main__ as euporie_main
@@ -337,6 +541,8 @@ def main() -> None:
         correct_cell_size()
         keep_slider_grab()
         quiet_shutdown_errors()
+        synchronize_frames()
+        trace_graphics()
         if os.environ.get('VIM_EUPORIE_FULL_SCREEN'):
             force_full_screen()
         euporie_main.main("console")
@@ -351,6 +557,8 @@ def main() -> None:
         correct_cell_size()
         keep_slider_grab()
         quiet_shutdown_errors()
+        synchronize_frames()
+        trace_graphics()
         if os.environ.get('VIM_EUPORIE_FULL_SCREEN'):
             force_full_screen()
         ConsoleApp.launch()
