@@ -703,6 +703,15 @@ function! euporie#doctor() abort
   call Report(report, features =~# '\<sixel\>',
         \ 'outer terminal reports Sixel support')
   call add(report, '  ..  graphics mode:  ' . euporie#graphics_mode())
+  if executable('chafa')
+    call add(report, '  ..  png-to-sixel:   chafa (fast)')
+  elseif executable('magick')
+    call add(report, '  ..  png-to-sixel:   ImageMagick. Installing chafa makes')
+    call add(report, '       figure updates about five times faster.')
+  else
+    call add(report, '  !!  png-to-sixel:   no converter found; install chafa')
+    let problems += 1
+  endif
 
   call add(report, 'Kernel')
   call Report(report, executable(s:setting('uv_command', 'uv')), 'uv on PATH')

@@ -279,8 +279,10 @@ def synchronize_frames() -> None:
     one visibly blank frame per slider tick. With the frame bracketed, tmux
     holds the pane's output until the closing marker and forwards erase and
     image atomically. Measured on a real drag: 13 blank frames without this,
-    none with it.
+    none with it. VIM_EUPORIE_NO_SYNC_FRAMES disables it for bisecting.
     """
+    if os.environ.get("VIM_EUPORIE_NO_SYNC_FRAMES"):
+        return
     try:
         from apptk.output.vt100 import Vt100_Output
     except ModuleNotFoundError:
@@ -296,6 +298,60 @@ def synchronize_frames() -> None:
         original_flush(self)
 
     Vt100_Output.flush = flush
+
+
+def blend_diff_frames() -> None:
+    """Paste ipympl diff frames onto the previous canvas, not instead of it.
+
+    Euporie blends an incoming frame only when the widget state's
+    ``_image_mode`` is ``diff`` at that instant. The mode update and the
+    binary frame arrive as separate messages, so a diff processed against a
+    stale mode replaces the whole canvas: the display collapses to the
+    diff's own size, and every later mouse event misses it, which is why
+    dragging on the plot stopped doing anything after the first press.
+    Blend whenever the incoming image is smaller than the current canvas,
+    whatever the mode field says.
+    """
+    try:
+        from euporie.core.comm.ipympl import MPLCanvasModel
+        from euporie.core.convert.datum import Datum
+    except ImportError:
+        return
+
+    def set_data(self, display, value):  # noqa: ANN001, ANN202
+        # ipympl sometimes sends raw RGB data to clear the canvas; only PNG
+        # frames carry a drawable image.
+        if not value.startswith(b"\x89PNG"):
+            return
+        datum = Datum(data=value, format="png")
+        try:
+            fg = datum.convert("pil")
+            state = self.data.get("state", {})
+            mode_is_diff = state.get("_image_mode") == "diff"
+            previous = getattr(display, "datum", None)
+            if previous is not None:
+                bg = previous.convert("pil")
+                if mode_is_diff or fg.size != bg.size:
+                    bg = bg.convert("RGBA")
+                    bg.paste(fg.convert("RGBA"), (0, 0), fg.convert("RGBA"))
+                    # Keep the datum in PNG form: a PIL datum's only route to
+                    # sixel is timg, a pure-Python encoder that takes tens of
+                    # seconds per frame and freezes the whole application,
+                    # while PNG converts through chafa in milliseconds.
+                    import io
+
+                    buffer = io.BytesIO()
+                    bg.save(buffer, format="PNG")
+                    datum = Datum(buffer.getvalue(), format="png")
+        except Exception:  # noqa: BLE001
+            # A frame we cannot blend is still better shown than dropped.
+            pass
+        display.datum = datum
+        self.data["state"]["_data_url"] = (
+            f"data:image/png;base64,{datum.convert('base64-png')}"
+        )
+
+    MPLCanvasModel.set_data = set_data
 
 
 def quiet_shutdown_errors() -> None:
@@ -523,6 +579,46 @@ def trace_graphics() -> None:
                      "mouse_handler_track", "mouse_handler_arrow"):
             wrap(SliderControl, name,
                  (lambda n: lambda self, *a, **k: f"Slider.{n} args={a}")(name))
+
+    try:
+        from euporie.core.comm.ipympl import MPLCanvasModel
+    except ImportError:
+        MPLCanvasModel = None
+    if MPLCanvasModel is not None:
+        wrap(MPLCanvasModel, "mouse_handler",
+             lambda self, mouse_event: f"MPLCanvas.mouse_handler {mouse_event}")
+        wrap(MPLCanvasModel, "set_data",
+             lambda self, display, value: f"MPLCanvas.set_data {len(value)} bytes")
+
+    from euporie.core.convert import utils as convert_utils
+
+    original_subproc = convert_utils.call_subproc
+
+    async def call_subproc(data, cmd, *args, **kwargs):  # noqa: ANN001, ANN202
+        note(f"call_subproc start {cmd[0]} ({len(data)} bytes in)")
+        try:
+            result = await original_subproc(data, cmd, *args, **kwargs)
+        except Exception as exc:
+            note(f"call_subproc {cmd[0]} RAISED {type(exc).__name__}: {exc}")
+            raise
+        note(f"call_subproc end   {cmd[0]} ({len(result)} bytes out)")
+        return result
+
+    convert_utils.call_subproc = call_subproc
+    for module_name in list(sys.modules):
+        module = sys.modules[module_name]
+        if (module_name.startswith("euporie") and
+                getattr(module, "call_subproc", None) is original_subproc):
+            module.call_subproc = call_subproc
+
+    try:
+        from euporie.core.kernel.jupyter import JupyterKernel
+    except ImportError:
+        JupyterKernel = None
+    if JupyterKernel is not None and hasattr(JupyterKernel, "kc_comm"):
+        wrap(JupyterKernel, "kc_comm",
+             lambda self, comm_id, data: f"kc_comm {data.get('method')} "
+             f"{str(data.get('content', {}))[:60]}")
     note("trace_graphics installed")
 
 
@@ -542,6 +638,7 @@ def main() -> None:
         keep_slider_grab()
         quiet_shutdown_errors()
         synchronize_frames()
+        blend_diff_frames()
         trace_graphics()
         if os.environ.get('VIM_EUPORIE_FULL_SCREEN'):
             force_full_screen()
@@ -558,6 +655,7 @@ def main() -> None:
         keep_slider_grab()
         quiet_shutdown_errors()
         synchronize_frames()
+        blend_diff_frames()
         trace_graphics()
         if os.environ.get('VIM_EUPORIE_FULL_SCREEN'):
             force_full_screen()

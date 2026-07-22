@@ -400,5 +400,65 @@ class SynchronizedFrameTests(unittest.TestCase):
         self.assertEqual(self._flush([]), [])
 
 
+class BlendDiffFrameTests(unittest.TestCase):
+    """ipympl diff frames are pasted onto the canvas, not swapped in for it.
+
+    A diff processed against a stale ``_image_mode`` otherwise replaces the
+    whole canvas, the display collapses to the diff's size, and every later
+    mouse event misses it.
+    """
+
+    def _run(self, previous_size, frame_size, image_mode):
+        import io
+
+        from PIL import Image
+
+        def png_bytes(size, color):
+            buffer = io.BytesIO()
+            Image.new("RGBA", size, color).save(buffer, format="PNG")
+            return buffer.getvalue()
+
+        class Datum:
+            def __init__(self, data=None, format=None):
+                self.data = data
+                self.format = format
+
+            def convert(self, to):
+                if to == "pil":
+                    if self.format == "png":
+                        return Image.open(io.BytesIO(self.data))
+                    return self.data
+                if to == "base64-png":
+                    return "encoded"
+                raise AssertionError(to)
+
+        class Model:
+            pass
+
+        display = SimpleNamespace(
+            datum=Datum(png_bytes(previous_size, (255, 0, 0, 255)), "png")
+        )
+        fake_ipympl = SimpleNamespace(MPLCanvasModel=Model)
+        fake_datum_mod = SimpleNamespace(Datum=Datum)
+        with patch.dict(
+            "sys.modules",
+            {
+                "euporie.core.comm.ipympl": fake_ipympl,
+                "euporie.core.convert.datum": fake_datum_mod,
+            },
+        ):
+            CONSOLE.blend_diff_frames()
+        model = Model()
+        model.data = {"state": {"_image_mode": image_mode}}
+        Model.set_data(model, display, png_bytes(frame_size, (0, 255, 0, 255)))
+        return display.datum.convert("pil").size
+
+    def test_a_smaller_frame_is_blended_despite_a_stale_mode(self):
+        self.assertEqual(self._run((40, 30), (40, 6), "full"), (40, 30))
+
+    def test_a_full_size_frame_replaces_the_canvas(self):
+        self.assertEqual(self._run((40, 30), (40, 30), "full"), (40, 30))
+
+
 if __name__ == "__main__":
     unittest.main()
