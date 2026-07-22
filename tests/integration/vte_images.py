@@ -136,6 +136,17 @@ def main() -> int:
         time.sleep(2.0)
         check("text over the image's own cells", ink(env, "v6"), False)
 
+        # A region scroll moves cells without moving ring-anchored images;
+        # the image must be retired or it lingers as a ghost. This is how
+        # tmux clears a closed pane's area.
+        tmux("send-keys", "-t", "0.1", f"clear; cat {WORK}/img.six", "C-m")
+        time.sleep(2.0)
+        check("image redrawn for the scroll case", ink(env, "v7"), True)
+        tmux("send-keys", "-t", "0.1",
+             r"printf '\033[1;20r\033[15S\033[r'", "C-m")
+        time.sleep(2.0)
+        check("after a region scroll over the image", ink(env, "v8"), False)
+
         print("PASS" if failures == 0 else f"{failures} FAILURES")
         return 1 if failures else 0
     finally:
